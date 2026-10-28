@@ -128,6 +128,17 @@ class PaySwiftClient:
             if resp.status_code == 400:
                 raise PaySwiftInvalidRequest(f"payswift 400: {resp.text}")
             if resp.status_code == 409:
+                try:
+                    conflict = resp.json()
+                except ValueError:
+                    conflict = {}
+                if conflict.get("error") == "request_in_progress":
+                    last = PaySwiftUnavailable(f"payswift 409: {resp.text}")
+                    if attempt < self.max_attempts:
+                        self.stats["retries"] += 1
+                        self.sleep(max(0.2, self.backoff_base * (2 ** (attempt - 1))))
+                        continue
+                    break
                 raise PaySwiftConflict(f"payswift 409: {resp.text}")
             # 429/5xx: honor Retry-After when present.
             if attempt < self.max_attempts:

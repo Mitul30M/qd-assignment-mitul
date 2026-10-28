@@ -43,6 +43,9 @@ the client saw 503/504. Therefore:
    backoff + jitter; honoring `Retry-After` if one ever appears (none observed).
 4. After an exhausted ambiguous failure: reconcile the rider's ledger before deciding
    `failed` vs `confirmed`.
-5. 400 → raise, no retry. 409 → raise, no retry (deterministic-key generation bug).
+5. 400 → raise, no retry. A 409 caused by `idempotency_key_reused` raises immediately
+   because it indicates a deterministic-key/body bug. The sandbox can also return
+   `request_in_progress` while the same idempotent write is still being processed;
+   that specific response is retried with the same key and body before reconciliation.
 6. Ledger is ephemeral: restart wipes it, so evidence of a payout lives in *our*
    `payments` table; state machine must treat sandbox restarts as external loss.

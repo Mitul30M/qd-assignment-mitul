@@ -142,8 +142,13 @@ docker compose down -v
 ```
 
 ```bash
-docker compose up -d --build --wait
+LLM_PROVIDER=stub docker compose up -d --build --wait
 ```
+
+`LLM_PROVIDER=stub` makes this walkthrough deterministic and prevents a live model
+from misclassifying fixture identifiers. If you intentionally use a live provider,
+configure its credentials separately and do not expect identical wording or
+extraction behavior.
 
 Confirm that the application, Postgres, and PaySwift containers are running:
 

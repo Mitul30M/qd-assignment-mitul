@@ -136,6 +136,18 @@ def test_409_never_retried():
     assert len(provider.posts) == 1
 
 
+def test_request_in_progress_409_retries_same_idempotent_request():
+    provider = FakeProvider([
+        {"status": 409, "body": {"error": "request_in_progress"}},
+        {"status": 201},
+    ])
+    client = make_client(provider)
+    result = client.create_payout("R001", 5, "d1", "key-in-progress")
+    assert result.status == "confirmed"
+    assert len(provider.posts) == 2
+    assert provider.posts[0]["idem"] == provider.posts[1]["idem"] == "key-in-progress"
+
+
 def test_mixed_5xx_and_timeout_bounded_retries_then_actual_write_reaches_ledger():
     """500-after-commit + timeout + 503: the request finally lands via ledger."""
     provider = FakeProvider([
