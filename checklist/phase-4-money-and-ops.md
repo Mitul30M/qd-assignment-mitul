@@ -255,22 +255,26 @@ the claim was already paid, so no second payout is created.
 
 ### 4. Exercise the approval queue
 
-A second same-day claim for the rider should not auto-pay again:
+The previous `R003` repeat is intentionally **not** an approval item: it is an
+already-paid claim, so `/ops/pending` correctly remains empty. To create a
+reproducible approval item, use the supplied `R034` fixture. Its verified
+shortfall is ₹249, above the ₹200 automatic limit:
 
 ```bash
 curl --fail --request POST http://localhost:8000/messages \
   --header 'Content-Type: application/json' \
   --data '{
     "message_id": "phase4-approval-001",
-    "rider_id": "R003",
-    "text": "T926334 ka surge abhi tak nahi mila",
-    "received_at": "2026-09-22T11:00:00+05:30"
+    "rider_id": "R034",
+    "text": "Sep 19 ko 3 orders ka paisa missing hai payout mein",
+    "received_at": "2026-09-23T11:30:00+05:30"
   }'
 
 curl --fail http://localhost:8000/ops/pending
 ```
 
-The pending response should contain an approval item with its rider, amount,
+The response should explain that ₹249 is waiting for ops approval. The pending
+response should contain an approval item for `R034` with amount `249`, evidence,
 reason, and creation time. Open the human-facing console:
 
 ```bash
@@ -281,8 +285,8 @@ The page should show the pending item, evidence, conversation preview, and
 approve/reject controls. To inspect the rider-specific audit trail:
 
 ```bash
-open 'http://localhost:8000/ops?rider=R003'
-curl --fail http://localhost:8000/trace/R003
+open 'http://localhost:8000/ops?rider=R034'
+curl --fail http://localhost:8000/trace/R034
 ```
 
 ### 5. Approve or reject from the API
