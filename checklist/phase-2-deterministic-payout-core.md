@@ -28,7 +28,9 @@
 - [x] The core can run without an LLM or network.
 - [x] Evidence returned to the workflow is sufficient to explain the result to a rider and ops.
 
-## Exit gate (done) and record response shapes, idempotency behavior, invalid amounts,
+## Plan-specific PaySwift gates
+
+- [x] Add a probe script and record response shapes, idempotency behavior, invalid amounts,
   unknown riders, rate limits/`Retry-After`, latency, list ordering/filtering, 5xx-after-write
   behavior, and ledger reset behavior in `docs/PAYSWIFT_NOTES.md`.
 - [x] Implement connect/read timeouts, bounded exponential backoff with jitter for 429/5xx/
@@ -146,3 +148,139 @@ Nothing in this phase reads rider text meaningfully or calls an LLM.
   pure functions (or be the absolute only caller of `send_payout`).
 - PaySwift rate-limit-like 503/504s are random even under a single burst; never make a
   test depend on zero-error responses from the sandbox; always coordinate with the mock.
+
+
+
+
+--------------------------------------------------------------
+
+
+Your understanding: claim verification ✅
+- A rider says "300 miss kar diya!" — that's just talk, not proof.
+- Our code (app/claims.py + app/policy.py + app/reconciliation.py) independently computes what the rider should have been paid from the trip sheets, compares with the actual payout lines, and gets the verified shortfall (₹41 in one case, even when the rider claimed ₹300).
+- The LLM only reads/parses rider language; it never picks the rupee amount. That's the model/code boundary.
+What PaySwift is
+It's a dummy payment gateway (like a fake Razorpay/UPI sandbox), not a DB:
+- QuickDrop would use it to actually send money to riders: POST /v1/payouts → it "pays" and keeps a ledger (list of payments it made).
+- We never touch/trust our own DB for "did the money really go?" — the brief says: reconcile against PaySwift, not your database. Its ledger is the ground truth.
+- It's closed-source (server.pyc we must not decompile) and deliberately misbehaves to simulate production chaos — that's why probing exists.
+What the probe is
+The probe (scripts/probe_payswift.py) is a safe spy on the black box: a script that sends diagnostic requests to PaySwift and records how it actually behaves, so we can write our payment code to match reality instead of trusting its README. Like test-driving a car for scratches before buying.
+What it checked and found:
+1. Standard stuff works as documented — 201 with payout_id, amount must be integer ₹1–₹10,000 (0/−3/5.5/"5"/10001 all rejected with 400), real payouts get recorded in the ledger, list endpoint returns them filtered by rider.
+2. The crucial trap it caught: in a burst of 40 rapid calls, we sent 40 requests, only ~26 came back 201 (rest 503/504)... but the ledger held 6 MORE payouts than the 201s we received. Meaning: PaySwift sometimes pays the money and THEN tells you it failed. If our code naively thinks "503 = not paid, let me retry", we'd pay the rider twice. Sounds innocent, that's exactly the bug the brief warns about ("we lost money on this last quarter").
+3. The escape hatch it proved: replaying the exact same request with the same Idempotency-Key is safe — PaySwift recognizes it and returns the original payout instead of creating a second one. But same key + different body = 409 (a scam/bug alarm).
+4. Also learned: it doesn't validate rider IDs (a made-up rider gets paid!), no 429s or Retry-After headers ever appear, its ledger is in-memory (wiped on restart), and latency is ~1–3 ms.
+So the probe's answer feeds straight into the client we wrote: validate amounts ourselves, always send a deterministic idempotency key, time out, back off, and on any ambiguous 5xx → look at PaySwift's ledger first before deciding the money moved or not.
+TL;DR: claims verification = are we paying the right amount; PaySwift = the fake gateway we pay through; probe = the secret manual for that gateway we wrote ourselves because the docs weren't enough.
+---
+
+## Reviewer command walkthrough — run Phase 2 yourself
+
+Read-only on the repo; execute-actions only move fake money in the sandbox
+(resettable with `docker compose restart payswift`).
+
+### 0. Make sure the stack is up
+
+```bash
+cd /Volumes/Mitul/Projects/qd-assignment
+docker compose up -d --wait
+curl -sS http://localhost:8000/health   # -> {"status":"ok"}
+curl -sS http://localhost:8081/health   # -> {"status":"ok"} (PaySwift)
+```
+
+### 1. Run the probe yourself (watch the black box)
+
+```bash
+uv run python scripts/probe_payswift.py
+# Watch the burst section: 201s interleaved with 503/504 — that's the chaos.
+
+# Check the discrepancy (writes committed but reported as errors):
+curl -sS "http://localhost:8081/v1/payouts?rider_id=RPROBE-1" \
+  | python3 -c "import sys,json; d=json.load(sys.stdin); print('ledger rows:', d['count'])"
+# -> compare with the '201' count the burst printed: ledger will be LARGER (5xx-after-write proof)
+```
+
+### 2. See the hand-worked claim math (the rupee-41 case)
+
+```bash
+uv run python - <<'PYEOF'
+from decimal import Decimal
+from app.policy import TripRecord, expected_for_trip
+# 5 km, surge 1.5, rider was paid the no-surge fare 24
+t = TripRecord("T1","R003","completed","2026-09-21T12:30:00+00:00",
+               Decimal("5"), Decimal("1.5"))
+print("expected:", expected_for_trip(t))   # -> 65 (43 x 1.5 = 64.5, half-up)
+# verified shortfall vs what was actually paid:
+paid = Decimal("24")
+print("verified shortfall:", int(expected_for_trip(t) - paid))  # -> 41, not the rider's "300"
+PYEOF
+```
+
+### 3. Decision engine: claims never pay more than verified
+
+```bash
+uv run pytest tests/test_claims.py -q      # pure decision tests (no LLM, no network)
+# Key cases in the file: foreign/missing trips, rupee-300 claim ignored,
+# >rupee-200 -> approval, repeat-day -> approval, overpay -> no negative owed
+```
+
+### 4. Payment state machine + safe replay (mocked provider / real Postgres)
+
+```bash
+uv run pytest tests/test_payswift_client.py -q   # 429->201, 400/409 never retried, timeouts, 503-after-commit
+TEST_DATABASE_URL=postgresql://qd:qd@localhost:5433/qd uv run pytest tests/test_payments_db.py -q
+# intent -> sent -> confirmed|failed, stuck-sent recovery, one-payout-per-dispute DB constraint
+```
+
+### 5. Try the safe-replay rule against the real sandbox (harmless demo)
+
+```bash
+# Send the SAME request 3 times with the SAME idempotency key:
+K="qd-demo-$(date +%s)"
+for i in 1 2 3; do
+  curl -sS -X POST http://localhost:8081/v1/payouts \
+    -H 'Content-Type: application/json' -H "Idempotency-Key: $K" \
+    -d '{"rider_id":"R003","amount":5,"reference":"demo-pay-once"}' | jq -c '{payout_id, status}'
+done
+# -> 201 with the SAME payout_id each time = only one payment exists
+
+# But same key + different body -> 409 (bug alarm):
+curl -sS -o /dev/null -w '%{http_code}\n' -X POST http://localhost:8081/v1/payouts \
+  -H 'Content-Type: application/json' -H "Idempotency-Key: $K" \
+  -d '{"rider_id":"R003","amount":9,"reference":"demo-pay-once"}'
+# -> 409
+
+# Ledger check — exactly ONE demo row exists:
+curl -sS "http://localhost:8081/v1/payouts?rider_id=R003" | jq '[.data[] | select(.reference=="demo-pay-once")] | length'
+
+# Validation demo: 0, 5.5, 10001 all rejected with 400
+for a in 0 5.5 10001; do
+  curl -sS -X POST http://localhost:8081/v1/payouts -H 'Content-Type: application/json' \
+    -d "{\"rider_id\":\"R003\",\"amount\":$a,\"reference\":\"demo-bad\"}"; echo
+done
+```
+
+### 6. Clean reset of the fake money
+
+```bash
+docker compose restart payswift   # ledger is in-memory; wipe = restart
+curl -sS "http://localhost:8081/v1/payouts?rider_id=RPROBE-1"   # -> count 0
+```
+
+### 7. Everything at once (what CI runs)
+
+```bash
+uv run ruff check . && uv run pytest -q && \
+SERVICE_URL=http://localhost:8000 uv run pytest -m integration -q
+```
+
+### Recap (simple words)
+
+- **Claim verification** — a rider's "300 miss kar diya" is just talk; code computes the
+  verified shortfall from trip sheets vs payout lines (41 wins, not the claim).
+- **PaySwift** — a dummy payment gateway (not our DB) whose ledger is the ground
+  truth for "did the money really go"; we reconcile against it, never our own DB.
+- **Probe** — a safe "spy" script against the black-box gateway to learn its real
+  behavior (5xx-after-write, safe replay rule, validation, no rider validation,
+  in-memory ledger) so our client matches reality instead of the README.
