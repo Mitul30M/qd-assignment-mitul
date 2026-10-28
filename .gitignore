@@ -4,7 +4,6 @@ node_modules/
 __pycache__/
 *.pyc
 !payswift/server.pyc
-uv.lock
 .pytest_cache/
 .ruff_cache/
 .DS_Store
