@@ -199,11 +199,11 @@ Expected observations:
 - a deterministic dispute/reference and idempotency key;
 - `ist_day` equal to `2026-09-22`.
 
-If the command has already been run, a response such as
-`₹25 PaySwift se aa chuke hain. Dobara payment nahi ho sakta.` is the correct
-result: the duplicate/repeat guard found the existing confirmed payment and
-prevented a second payout. Use the clean-database reset in Step 1 if you need to
-observe the initial auto-pay response again.
+If the command has already been run with this same `message_id`, the stored
+success reply is expected to be returned again. That is the inbound-message
+idempotency check; it returns the original reply without running the workflow
+again. Use the clean-database reset in Step 1 if you need to observe the initial
+auto-pay response again.
 
 ### 3. Prove message idempotency and no duplicate payout
 
@@ -233,6 +233,25 @@ curl --fail 'http://localhost:8081/v1/payouts?rider_id=R003'
 ```
 
 There should not be a second payout for the same verified claim.
+
+To test the separate duplicate-claim guard, send the same claim with a **new**
+`message_id`:
+
+```bash
+curl --fail --request POST http://localhost:8000/messages \
+  --header 'Content-Type: application/json' \
+  --data '{
+    "message_id": "phase4-auto-repeat-001",
+    "rider_id": "R003",
+    "text": "Sir T926334 ke liye sirf 49 diye, poore 74 bante the",
+    "received_at": "2026-09-22T10:00:00+05:30"
+  }'
+```
+
+This may return a response such as
+`₹25 PaySwift se aa chuke hain. Dobara payment nahi ho sakta.` The new message is
+processed, but the confirmed payment and verified shortfall history show that
+the claim was already paid, so no second payout is created.
 
 ### 4. Exercise the approval queue
 
