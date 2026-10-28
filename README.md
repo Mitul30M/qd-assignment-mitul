@@ -16,7 +16,7 @@ The evaluator uses only the public service and PaySwift interfaces. Use
 safety probes. See [checklist/phase-5-evals.md](checklist/phase-5-evals.md) for
 the evaluation contract and clean-run requirements.
 
-Latest recorded evaluation: 2026-10-28, `LLM_PROVIDER=stub`, clean Compose reset
-before every case, **30/30 cases passed** (24 supplied fixtures and 6 owned
-safety probes). The evaluator records payout and approval deltas, escalations,
-reply facts, and actionable failure reasons.
+Latest recorded evaluation: 2026-10-28, commit `054195e`, `LLM_PROVIDER=stub`,
+clean Compose reset before every case, **30/30 cases passed** (24 supplied
+fixtures and 6 owned safety probes). The evaluator records payout and approval
+deltas, escalations, reply facts, and actionable failure reasons.
