@@ -33,15 +33,16 @@ curl -sS http://localhost:8000/ops/pending | jq .
 ## 3. Idempotency demo (vendor retry behaviour)
 
 ```bash
-# Same body twice -> same reply, no second row
-BODY='{"message_id":"wamid.TRY-2","rider_id":"R003","text":"order T926334 ka surge nahi mila","received_at":"2026-09-22T09:05:00+05:30"}'
-curl -sS -X POST http://localhost:8000/messages -d "$BODY" | jq -r .reply
-curl -sS -X POST http://localhost:8000/messages -d "$BODY" | jq -r .reply
+# Same body twice = the vendor retrying the SAME message_id (wamid).
+curl -sS -X POST http://localhost:8000/messages -H 'Content-Type: application/json' -d "$BODY" | jq -r .reply
+curl -sS -X POST http://localhost:8000/messages -H 'Content-Type: application/json' -d "$BODY" | jq -r .reply
+# -> both print the same stub reply, because the second delivery must reuse the first's reply,
+#    not reprocess the message: that's the webhook idempotency contract.
 
-# Prove exactly one inbound row was created for it
+# Prove the replay created exactly ONE inbound row (not two)
 docker compose exec postgres psql -U qd -d qd -c \
   "SELECT message_id, rider_id, reply IS NOT NULL AS has_reply FROM inbound_messages WHERE message_id='wamid.TRY-2';"
-```
+# -> 1 row, has_reply = t
 
 ## 4. Seeded data in Postgres
 
