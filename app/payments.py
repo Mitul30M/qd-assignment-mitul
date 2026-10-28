@@ -25,15 +25,15 @@ def _now() -> str:
 
 
 def persist_intent(conn, rider_id: str, amount: int, purpose: str, dispute_id: str,
-                   idem_key: str) -> dict:
+                   idem_key: str, ist_day: str | None = None) -> dict:
     """State 1: write `intent` and its deterministic key before any API call."""
     payment_id = f"pay_{uuid.uuid4().hex[:12]}"
     conn.execute(
         """INSERT INTO payments (payment_id, rider_id, dispute_id, amount, purpose, state,
-                                 idempotency_key, reference, created_at, details)
-           VALUES (%s, %s, %s, %s, %s, 'intent', %s, %s, %s, %s)""",
+                                 idempotency_key, reference, created_at, details, ist_day)
+           VALUES (%s, %s, %s, %s, %s, 'intent', %s, %s, %s, %s, %s)""",
         [payment_id, rider_id, dispute_id, amount, purpose, idem_key, dispute_id, _now(),
-         json.dumps({"purpose": purpose})],
+         json.dumps({"purpose": purpose}), ist_day],
     )
     return {"payment_id": payment_id, "state": "intent", "idempotency_key": idem_key,
             "amount": amount}
@@ -72,7 +72,8 @@ def list_for_rider_day(conn, rider_id: str, ist_day: str) -> list[dict]:
     rows = conn.execute(
         """SELECT p.* FROM payments p
            WHERE p.rider_id=%s AND state <> 'failed'
-             AND (p.created_at AT TIME ZONE 'Asia/Kolkata')::date = %s::date""",
+             AND COALESCE(p.ist_day,
+                 (p.created_at AT TIME ZONE 'Asia/Kolkata')::date)::text = %s""",
         [rider_id, ist_day],
     ).fetchall()
     return [dict(r) for r in rows]
@@ -102,11 +103,19 @@ def reconcile_stuck_sent(conn, client: PaySwiftClient) -> list[dict]:
 
 
 def send_payout(conn, client: PaySwiftClient, rider_id: str, dispute_id: str, amount: int,
-                purpose: str, idem_key: str) -> dict:
+                purpose: str, idem_key: str, claim: dict | None = None,
+                ist_day: str | None = None) -> dict:
     """Ordered flow: intent -> sent -> (confirmed | failed). On provider ambiguity the
-    ledger is reconciled before any outcome is declared (no blind retry at this layer)."""
-    intent = persist_intent(conn, rider_id, amount, purpose, dispute_id, idem_key)
+    ledger is reconciled before any outcome is declared (no blind retry at this layer).
+    `claim` (verified shortfall map) is stored on the row so repeats can be detected
+    and the verified shortfall is never paid twice."""
+    intent = persist_intent(conn, rider_id, amount, purpose, dispute_id, idem_key, ist_day)
     payment_id = intent["payment_id"]
+    if claim:
+        conn.execute(
+            "UPDATE payments SET details = details || %s::jsonb WHERE payment_id = %s",
+            [json.dumps({"shortfalls": claim}), payment_id],
+        )
     mark_sent(conn, payment_id)
     try:
         result = client.create_payout(rider_id, amount, dispute_id, idem_key)

@@ -92,6 +92,44 @@ MIGRATIONS = [
     CREATE UNIQUE INDEX IF NOT EXISTS payments_dispute_purpose_idx
         ON payments (dispute_id, purpose) WHERE state <> 'failed';
     """,
+    """CREATE TABLE IF NOT EXISTS conversations (
+        conversation_id TEXT PRIMARY KEY,
+        rider_id TEXT NOT NULL,
+        started_at TIMESTAMPTZ NOT NULL,
+        last_active TIMESTAMPTZ NOT NULL,
+        open BOOLEAN NOT NULL DEFAULT true
+    );
+    CREATE INDEX IF NOT EXISTS conversations_rider_idx ON conversations (rider_id, last_active);
+
+    CREATE TABLE IF NOT EXISTS issues (
+        issue_id TEXT PRIMARY KEY,
+        conversation_id TEXT NOT NULL REFERENCES conversations(conversation_id),
+        rider_id TEXT NOT NULL,
+        kind TEXT NOT NULL CHECK (kind IN ('surge', 'short_pay_day', 'incentive', 'penalty', 'other')),
+        trip_ids JSONB NOT NULL DEFAULT '[]'::jsonb,
+        ist_day DATE,
+        claimed_amount INTEGER,
+        missing_slots JSONB NOT NULL DEFAULT '[]'::jsonb,
+        ask_count INTEGER NOT NULL DEFAULT 0,
+        outcome TEXT,
+        status TEXT NOT NULL DEFAULT 'open',
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+    CREATE INDEX IF NOT EXISTS issues_rider_idx ON issues (rider_id, status);
+    """,
+    # Retry-after-failure must reuse the SAME idempotency key (provider dedupe is the
+    # safety net when an error hides a commit), so the plain UNIQUE becomes partial:
+    # an active payment blocks a duplicate key; failed ones may be retried.
+    """ALTER TABLE payments DROP CONSTRAINT IF EXISTS payments_idempotency_key_key;
+    CREATE UNIQUE INDEX IF NOT EXISTS payments_idem_active_idx
+        ON payments (idempotency_key) WHERE state <> 'failed';
+    """,
+    # ist_day pins the payout to the rider IST day of received_at (the ₹200/day cap
+    # is a policy day, not the wall-clock day of processing).
+    """ALTER TABLE payments ADD COLUMN IF NOT EXISTS ist_day DATE;
+    CREATE INDEX IF NOT EXISTS payments_rider_day_idx ON payments (rider_id, ist_day);
+    """,
 ]
 
 

@@ -30,10 +30,16 @@ async def lifespan(app: FastAPI):
     loaded = db.seed(conn, DATA_DIR)
     recovery = _recover_stuck_payments(conn)
     conn.close()
+    # Agent graph with a Postgres checkpointer: one graph + saver per process.
+    from app.agent.graph import build_graph, make_checkpointer
+
+    app.state.agent_conn = db.connect(settings.database_url)
+    checkpointer = make_checkpointer(settings.database_url)
+    app.state.agent_graph = build_graph(app.state.agent_conn, checkpointer)
     app.state.initialized = loaded
     app.state.payment_recovery = recovery
     yield
-    conn.close()
+    app.state.agent_conn.close()
 
 
 def _recover_stuck_payments(conn) -> list[dict]:
@@ -97,7 +103,7 @@ def messages(msg: IncomingMessage, request: Request):
         return JSONResponse(status_code=200, content={"reply": _fallback_safe()})
 
     try:
-        reply = _process_message(conn, msg, received_at)
+        reply = _process_message(conn, msg, received_at, request)
     except Exception as exc:  # never 5xx: fail safe, escalate visible via ops page
         conn.execute(
             "UPDATE inbound_messages SET ok = false, error = %s,"
@@ -155,8 +161,10 @@ def _record_ops_failure(conn, rider_id: str, reason: str) -> None:
     )
 
 
-def _process_message(conn, msg: IncomingMessage, received_at: datetime) -> str:
-    """Phase-1 stub: deterministic acknowledgement; agent core arrives in Phase 3."""
+def _process_message(conn, msg: IncomingMessage, received_at: datetime, request: Request) -> str:
+    """Agent flow (LangGraph): triage -> safety -> claims -> respond (all traced)."""
+    from app.agent.graph import handle_message_graph
+
     db.trace(
         conn,
         msg.rider_id,
@@ -165,17 +173,10 @@ def _process_message(conn, msg: IncomingMessage, received_at: datetime) -> str:
         {"message_id": msg.message_id, "text": msg.text, "received_at": msg.received_at},
         None,
     )
-    reply = (
-        "Aapka message mil gaya (Phase 1 stub). "
-        f"Ref: {msg.message_id} @ {received_at.isoformat()}"
+    return handle_message_graph(
+        conn, request.app.state.agent_graph, msg.rider_id, msg.message_id,
+        msg.text, msg.received_at
     )
-    db.trace(conn, msg.rider_id, "reply", "stub_reply", None, reply)
-    conn.execute(
-        "UPDATE inbound_messages SET reply = %s, reply_at = now(), ok = true "
-        "WHERE message_id = %s",
-        (reply, msg.message_id),
-    )
-    return reply
 
 
 def _parse_received_at(value: str) -> datetime:
