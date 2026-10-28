@@ -30,3 +30,7 @@ target-version = "py314"
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+pythonpath = ["."]
+
+[tool.uv]
+package = false
