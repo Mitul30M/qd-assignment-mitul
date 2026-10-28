@@ -3,7 +3,27 @@
 ## Objectives
 
 - Handle fragmented natural-language disputes without allowing the model to control safety
-  decisions or invent facts.
+  decisions or invent facts. Phase-2's code layer (`claims.py`, `payments.py`,
+  `payswift.py`) is the money authority; the model never touches it.
+
+## Agreed plan (framework + persistence decisions, confirmed with reviewer)
+
+- **This is the phase where the LLM enters.** Model role is strictly bounded: language
+  parsing, entity/intent extraction, clarifying questions, reply drafting. It never picks
+  amounts, routes money, decides approval, or changes rider identity.
+- **Orchestration: LangGraph + LangChain** (chosen over plain-code adapter for state-machine
+  ergonomics). Deps: `langgraph`, `langgraph-checkpoint-postgres`, `langchain-core`.
+- **Persistence: Postgres (already in the stack) via LangGraph's official Postgres
+  checkpointer**, threads keyed by `rider_id`; plus hand-written `issues` table beside it
+  for per-rider dispute state; `conversations` started_at for the silence rule. One DB
+  instance, no new infrastructure.
+- Graph flow: `intake → extract (LLM #1) → normalize dates/ids → verify (claims.py) →
+  route → compose reply (LLM #2, optional) → reply`. Linear StateGraph, bounded LLM nodes.
+- Budget guardrails: LLM timeout ≤4 s per call, ≤2 calls/message, ~8 s total budget,
+  deterministic fallback reply afterwards (never 5xx to vendor, never fake payout claim).
+- LLM adapter: provider `groq|gemini|openai` behind LangChain's chat interface; needs
+  `LLM_PROVIDER/LLM_API_KEY/LLM_MODEL` (already in config.py/.env.example); **stub
+  provider** keeps tests deterministic without network.
 
 ## Checklist
 
