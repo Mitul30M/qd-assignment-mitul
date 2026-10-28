@@ -6,6 +6,19 @@ work. If time is short, cut extra eval scenarios, UI polish, and a second LLM pr
 before cutting the policy engine, money safety, idempotency, trace, evals, README, or raw
 AI logs.
 
+## Repository and branch safety
+
+- `origin` points to the private submission repository; `upstream` points to the original
+  ProcureYard repository. Develop and push only to `origin`.
+- Never push assignment work to `upstream`; do not run `git push upstream main`.
+- Work on `mitul-qd` and open pull requests from `mitul-qd` into `main` in the private
+  repository. The final implementation must be present on the private repository's `main`
+  branch because that is the branch evaluated at the deadline.
+- Before editing or committing, verify `git branch --show-current`, `git remote -v`, and
+  `git status`. Preserve intentional worktree changes.
+- A separate phase branch is optional, not required. If additional branches are created,
+  merge them into the private `main`, never into `upstream/main`.
+
 This repository is a ProcureYard take-home assignment for a Rider Payout Dispute Desk. Treat
 the external interfaces and policy in [BRIEF.md](./BRIEF.md), [SUBMISSION.md](./SUBMISSION.md),
 and [docs/policy.md](./docs/policy.md) as acceptance criteria, not suggestions.

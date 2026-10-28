@@ -107,7 +107,7 @@
 
 ## 4. Suggested architecture
 
-- Python 3.12 + FastAPI + Postgres + pytest + ruff. LLM behind a thin provider adapter (Groq primary, Gemini fallback), JSON-schema outputs, temperature 0.
+- Python 3.14 + FastAPI + Postgres + pytest + ruff. LLM behind a thin provider adapter (Groq primary, Gemini fallback), JSON-schema outputs, temperature 0.
 - **LLM does:** language understanding, entity/intent extraction (trip ids, dates, claim types, claimed amount, language, injection flag), drafting the reply from verified facts.
 - **Code does:** date resolution, ownership and window checks, fare computation, paid-so-far reconciliation, caps, payout/approval/escalation decisions, PaySwift calls, state and trace.
 - Per-message flow: dedupe → load state → extract → resolve → verify per issue → money gate → execute → compose reply → validate reply numbers against computed facts → trace → store reply.

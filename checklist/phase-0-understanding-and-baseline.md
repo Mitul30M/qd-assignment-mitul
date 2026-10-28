@@ -38,7 +38,7 @@
   [docs/DECISIONS.md](../docs/DECISIONS.md).
 - [ ] Confirm the repository is a clone, not a fork; create/repoint the private submission
   repository, push it, and invite `Sarthak-pyard` as collaborator when submission work begins.
-- [ ] Choose the stack and record why in `docs/DECISIONS.md` (suggested baseline: Python 3.12,
+- [ ] Choose the stack and record why in `docs/DECISIONS.md` (suggested baseline: Python 3.14,
   FastAPI, Postgres, pytest, and ruff).
 - [ ] Establish one raw AI-session export per phase and export it into [ai-logs/](../ai-logs/)
   at phase end.

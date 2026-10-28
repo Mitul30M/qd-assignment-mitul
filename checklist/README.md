@@ -22,7 +22,7 @@ Deliver a trustworthy, runnable dispute assistant that:
 
 ## Recommended architecture
 
-The suggested baseline is Python 3.12, FastAPI, Postgres, pytest, and ruff, with an LLM behind
+The suggested baseline is Python 3.14, FastAPI, Postgres, pytest, and ruff, with an LLM behind
 a thin provider adapter (Groq primary and Gemini fallback are optional). Use JSON-schema model
 outputs and temperature 0 if a hosted model is used.
 
