@@ -34,6 +34,6 @@ The ops console is intentionally local/simple, not a production identity system.
 
 Latest recorded evaluation: 2026-10-28, commit `054195e`, `LLM_PROVIDER=stub`,
 clean Compose reset before every case, **30/30 cases passed** (24 supplied
-fixtures and 6 evaluator-owned safety probes). A clean 20-request stub latency
-run measured p95 **28.3 ms**. Extra hosted-provider coverage, production auth,
-outbound notifications, and a fresh-clone run remain outside this take-home scope.
+fixtures and 6 evaluator-owned safety probes). Clean Compose runs measured stub
+latency p95 between **28.3 ms and 57.5 ms**. Extra hosted-provider coverage,
+production auth, and outbound notifications remain outside this take-home scope.
