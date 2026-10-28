@@ -56,7 +56,7 @@ Nothing in this phase reads rider text meaningfully or calls an LLM.
 1. `app/policy.py` — pure money math (already from Phase 1, now bulk-ticked here):
    `trip_fare` (₹25 + ₹6/km after 2 km), surge × whole fare, `Decimal` + `ROUND_HALF_UP`,
    IST-day grouping, ₹150 @ ≥12 completed trips, −₹10 rider-cancel penalty, ₹0 for
-   customer cancels, 7-day IST window, Grand-Sum invariant One-flow: `expected_for_trip` /
+   customer cancels, 7-day IST window, grand sums. Entry points: `expected_for_trip` /
    `expected_for_rider_day`.
 2. `app/reconciliation.py` — owed vs paid per trip and per rider-day, with categories:
    underpaid / overpaid / missing_pay_line / duplicate_trip_line / missing_penalty /
@@ -95,7 +95,7 @@ Nothing in this phase reads rider text meaningfully or calls an LLM.
      refuses a second auto payout for one dispute; `idempotency_key UNIQUE` blocks
      the same bill from being raised twice.
 6. `scripts/probe_payswift.py` + `docs/PAYSWIFT_NOTES.md` (new) — the black-box dossier.
-   Critical findings from not trusting README-only anima:
+   Critical findings:
    - 503/504 happen **even when the write committed** (burst 40 calls: 201×26, 503×8,
      504×6 but ledger grew by +6 writes). So a bare transport failure NEVER means
      "not paid" — reconcile is mandatory before any retry decision.
@@ -140,9 +140,9 @@ Nothing in this phase reads rider text meaningfully or calls an LLM.
 - Reconcile-before-retry is a MUST inside any phase-3 phase-money tool, a caller should
   never copy `create_payout` retry loops on its own.
 - `payments.state <> 'failed'` UNIQUE protects duplicates only within one purpose "auto";
-  ops-approved payouts need a different purpose value; keep the money amounts dec ided by
+  ops-approved payouts need a different purpose value; keep the money amounts decided by
   this layer, never the model.
-- Restore sandbox wipes its ledger; any test thatJUnit-asserts payout ids against the
+- Restore sandbox wipes its ledger; any test that asserts payout ids against the
   sandbox must tolerate a wiped ledger (IDs are not stable across restarts).
 - The claim-engine never touches the model; Phase 3's model MUST route through these
   pure functions (or be the absolute only caller of `send_payout`).
