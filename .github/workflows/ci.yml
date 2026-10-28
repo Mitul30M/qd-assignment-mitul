@@ -5,29 +5,72 @@ on:
   pull_request:
 
 jobs:
-  test:
+  lint:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
         with:
           python-version: "3.14"
-      - run: uv run ruff check .
-      - run: uv run pytest -q
+      - run: uv run ruff check app tests evals scripts
+
+  type-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.14"
+      - name: compile Python modules
+        run: uv run python -m compileall -q app evals scripts tests
+
+  unit-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.14"
+      - run: uv run pytest -q -m "not integration"
+
+  compose-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.14"
       - name: compose build + start + health
         run: |
-          docker compose build
-          docker compose up -d --wait
+          LLM_PROVIDER=stub docker compose build
+          LLM_PROVIDER=stub docker compose up -d --wait
           curl -fsS http://localhost:8000/health
-      - name: duplicate message id returns stable reply
+      - name: public contract and reliability probes
         run: |
           set -e
           BODY='{"message_id":"wamid.CI-DUP-1","rider_id":"R003","text":"bhai payout galat aaya hai","received_at":"2026-09-22T09:00:00+05:30"}'
           R1=$(curl -fsS -X POST -H 'Content-Type: application/json' -d "$BODY" http://localhost:8000/messages)
           R2=$(curl -fsS -X POST -H 'Content-Type: application/json' -d "$BODY" http://localhost:8000/messages)
           [ "$R1" = "$R2" ]
+          [ "$(curl -sS -o /dev/null -w '%{http_code}' -X POST -H 'Content-Type: application/json' -d '{' http://localhost:8000/messages)" = "422" ]
+          [ "$(curl -sS -o /dev/null -w '%{http_code}' -X POST -H 'Content-Type: application/json' -d '{"message_id":"ci-bad-date","rider_id":"R003","text":"hello","received_at":"bad"}' http://localhost:8000/messages)" = "400" ]
           curl -fsS http://localhost:8000/trace/R003 > /dev/null
           curl -fsS http://localhost:8000/ops/pending > /dev/null
+          python scripts/measure_latency.py http://localhost:8000 --count 10 --max-p95-ms 10000
+      - name: evaluator smoke
+        run: |
+          docker compose down -v
+          LLM_PROVIDER=stub docker compose up -d --wait
+          python evals/run.py http://localhost:8000 --only fixture-01 --no-own
+      - name: dependency outage remains a safe response
+        run: |
+          set -e
+          docker compose stop payswift
+          response=$(curl -fsS -X POST -H 'Content-Type: application/json' \
+            -d '{"message_id":"ci-provider-down","rider_id":"R003","text":"T926334 ka payout kam hai","received_at":"2026-09-22T09:10:00+05:30"}' \
+            http://localhost:8000/messages)
+          echo "$response" | grep -q '"reply"'
+          docker compose start payswift
       - name: teardown
         if: always()
         run: docker compose down -v

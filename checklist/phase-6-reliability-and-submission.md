@@ -37,6 +37,31 @@
 - [ ] Confirm everything is on `main`, tag the final state `submission`, and send the link
   before the deadline.
 
+## Implementation evidence
+
+- [x] CI is split into lint, Python compilation/type-safety, unit-test, and Compose smoke
+  jobs. The Compose job builds from scratch, waits for `/health`, checks duplicate delivery,
+  malformed JSON, invalid timestamps, trace/ops contracts, provider outage safety, and runs an
+  evaluator smoke case. Every Compose path tears down with `docker compose down -v`.
+- [x] `.env.example` defaults to `LLM_PROVIDER=stub`, so copying it produces a deterministic
+  no-secret local run. Hosted providers remain optional.
+- [x] `scripts/measure_latency.py` measures public `POST /messages` latency and enforces a
+  configurable p95 threshold. A clean local Compose run with 20 stub requests recorded
+  p95 **28.3 ms**, well below the 10-second vendor budget; CI enforces the same budget with
+  10 requests.
+- [x] Existing tests cover malformed model output, bounded provider timeouts, payment
+  reconciliation, duplicate messages, trace output, validation errors, and ops idempotency.
+- [x] The evaluator was run from a clean Compose reset with `30/30` cases passing. A
+  deliberately broken endpoint was also verified to fail the evaluator with a non-zero exit.
+
+### Deliberately remaining submission tasks
+
+- [ ] Export the current Copilot session's raw JSONL into `ai-logs/` if the VS Code export is
+  available; the committed logs currently cover the earlier exported sessions only.
+- [ ] Perform the final fresh-clone run, inspect the final diff for secrets/large files, confirm
+  collaborator/deadline logistics in `SUBMISSION.md`, create the `submission` tag, and send the
+  private repository link.
+
 ## Final release gate
 
 - [ ] `docker compose up` works from a clean checkout.

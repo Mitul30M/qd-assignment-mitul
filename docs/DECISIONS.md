@@ -60,3 +60,14 @@ Rider text is untrusted: passed to the model as delimited data, never as instruc
 ## Skipped scope (honest list)
 
 - None deliberate yet; will be updated as phases settle (candidates per PLAN §5: extra eval scenarios, ops-page polish, Gemini fallback provider).
+
+## D6: Reliability and submission defaults
+
+- **Choice:** CI separates lint, Python compilation, unit tests, and a clean Compose
+  smoke job. The smoke job exercises malformed input, duplicate delivery, provider
+  outage handling, latency, and one black-box fixture.
+- **Choice:** `.env.example` defaults to `LLM_PROVIDER=stub`.
+- **Why:** A reviewer can clone the private repository and run it without a secret or
+  hosted-model account; the optional provider boundary remains explicit.
+- **Evidence:** Clean Compose startup passed; 20 stub requests measured p95 28.3 ms;
+  the evaluator smoke case passed after a fresh volume reset.
