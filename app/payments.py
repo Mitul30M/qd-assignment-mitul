@@ -15,6 +15,8 @@ from __future__ import annotations
 import json
 import uuid
 
+import psycopg
+
 from .payswift import PayoutResult, PaySwiftClient, PaySwiftError
 
 
@@ -108,8 +110,32 @@ def send_payout(conn, client: PaySwiftClient, rider_id: str, dispute_id: str, am
     """Ordered flow: intent -> sent -> (confirmed | failed). On provider ambiguity the
     ledger is reconciled before any outcome is declared (no blind retry at this layer).
     `claim` (verified shortfall map) is stored on the row so repeats can be detected
-    and the verified shortfall is never paid twice."""
-    intent = persist_intent(conn, rider_id, amount, purpose, dispute_id, idem_key, ist_day)
+    and the verified shortfall is never paid twice.
+
+    Idempotent per dispute: an existing active payment for the same dispute key is
+    returned as-is (concurrent approvals/messages converge on one payout)."""
+    existing = conn.execute(
+        "SELECT * FROM payments WHERE rider_id = %s AND dispute_id = %s "
+        "AND state <> 'failed' ORDER BY created_at DESC LIMIT 1",
+        [rider_id, dispute_id],
+    ).fetchone()
+    if existing:
+        return dict(existing)
+    payment_id = f"pay_{uuid.uuid4().hex[:12]}"
+    try:
+        intent = persist_intent(conn, rider_id, amount, purpose, dispute_id, idem_key,
+                                ist_day)
+    except psycopg.errors.UniqueViolation:
+        # lost a concurrent insert race (same idem key or one-auto-per-day cap):
+        # re-read; if no active row for this dispute, the cap index blocked us.
+        row = conn.execute(
+            "SELECT * FROM payments WHERE rider_id = %s AND dispute_id = %s "
+            "AND state <> 'failed' LIMIT 1", [rider_id, dispute_id],
+        ).fetchone()
+        if row:
+            return dict(row)
+        return {"payment_id": "", "state": "failed", "error": "auto cap raced",
+                "amount": amount, "idempotency_key": idem_key}
     payment_id = intent["payment_id"]
     if claim:
         conn.execute(

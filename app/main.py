@@ -223,3 +223,10 @@ def ops_pending():
         }
         for r in rows
     ]
+
+
+# Ops console (page + approve/reject). Additive endpoints; the four fixed
+# contracts above are unchanged. Imported late: ops_page needs get_conn.
+from app.ops_page import router as ops_router
+
+app.include_router(ops_router)

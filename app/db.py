@@ -130,6 +130,27 @@ MIGRATIONS = [
     """ALTER TABLE payments ADD COLUMN IF NOT EXISTS ist_day DATE;
     CREATE INDEX IF NOT EXISTS payments_rider_day_idx ON payments (rider_id, ist_day);
     """,
+    # Ops-console lifecycle: rider-safe category + the verified claim context an
+    # approval must RE-verify from; notices queue for approve/reject rider messages.
+    """ALTER TABLE ops_items ADD COLUMN IF NOT EXISTS category TEXT;
+    ALTER TABLE ops_items ADD COLUMN IF NOT EXISTS claim JSONB;
+    ALTER TABLE ops_items ADD COLUMN IF NOT EXISTS issue_id TEXT;
+    CREATE TABLE IF NOT EXISTS notices (
+        notice_id TEXT PRIMARY KEY,
+        rider_id TEXT NOT NULL,
+        ops_item_id TEXT NOT NULL,
+        decision TEXT NOT NULL,
+        category TEXT,
+        amount INTEGER,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        delivered_at TIMESTAMPTZ
+    );
+    CREATE INDEX IF NOT EXISTS notices_pending_idx ON notices (rider_id, delivered_at);
+    -- DB-level guarantee of "at most one AUTO payout per rider per IST day":
+    -- each verified auto shortfall is <= ₹200, so one row bounds auto spend at ₹200.
+    CREATE UNIQUE INDEX IF NOT EXISTS payments_auto_one_per_day
+        ON payments (rider_id, ist_day) WHERE purpose = 'auto' AND state <> 'failed';
+    """,
 ]
 
 

@@ -15,6 +15,9 @@ from langgraph.checkpoint.postgres import PostgresSaver
 from langgraph.graph import END, START, StateGraph
 from typing_extensions import TypedDict
 
+from app import notices
+from app.db import trace
+
 from . import extraction, issues, replies, tools
 from .flow import (
     _IDENTITY_RE,
@@ -92,18 +95,20 @@ def build_graph(conn, checkpointer: PostgresSaver | None = None):
         if (mention and mention != rider_id) or (ident and ident.group(1).upper() != rider_id):
             named = mention or ident.group(1).upper()
             _record_ops(conn, rider_id, "escalation", None,
-                        f"identity guard: mentioned {named}")
+                        f"identity guard: mentioned {named}", category="identity")
             return {"early_reply": replies.identity_bound(),
                     "outcomes": [f"ESCALATE:rider named {named}"]}
         injected = tri.get("injection") or bool(_INJECT_RE.search(text))
         if injected or tri.get("tone_flag") == "threat":
             _record_ops(conn, rider_id, "escalation", None,
                         f"{state['message_id']}: "
-                        f"{'injection attempt' if injected else 'threat'}")
+                        f"{'injection attempt' if injected else 'threat'}",
+                        category="injection" if injected else "tone")
             return {"early_reply": replies.escalation("safety"),
                     "outcomes": ["ESCALATE:threat or injection"]}
         if tri.get("asks_human"):
-            _record_ops(conn, rider_id, "escalation", None, "rider asked for a human")
+            _record_ops(conn, rider_id, "escalation", None, "rider asked for a human",
+                        category="human_request")
             return {"early_reply": replies.escalation("human"),
                     "outcomes": ["ESCALATE:asks_human"]}
         return {}
@@ -166,14 +171,27 @@ def build_graph(conn, checkpointer: PostgresSaver | None = None):
 
     # ---- node: respond ----
     def respond(state: TurnState) -> TurnState:
+        # deliver queued ops decisions first — exactly once, atomically with the
+        # reply store (a crash before _finish leaves the notice queued for later).
+        pend = notices.pending_notices(conn, state["rider_id"])
+        prefix = " ".join(replies.ops_decision(n) for n in pend) if pend else ""
+        if pend:
+            for n in pend:
+                notices.mark_delivered(conn, n["notice_id"])
+            trace(conn, state["rider_id"], "decision", "notice_delivered",
+                  {"message_id": state["message_id"]},
+                  {"count": len(pend),
+                   "decisions": [n["decision"] for n in pend]})
         early = state.get("early_reply")
         if early:
             outcomes = state.get("outcomes") or ["ESCALATE"]
-            _finish(conn, state["rider_id"], state["message_id"], early,
+            reply = f"{prefix} {early}".strip()
+            _finish(conn, state["rider_id"], state["message_id"], reply,
                     outcomes[0].split(":")[0], outcomes[0])
-            return {"reply": early}
+            return {"reply": reply}
         reply = state.get("reply") or ""
         outcomes = state.get("outcomes") or ["NEED_INFO"]
+        reply = f"{prefix} {reply}".strip() if prefix else reply
         _finish(conn, state["rider_id"], state["message_id"], reply,
                 outcomes[0], f"{len(state.get('claims') or [])} claim(s)")
         return {"reply": reply}

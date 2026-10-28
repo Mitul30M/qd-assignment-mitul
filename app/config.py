@@ -21,7 +21,7 @@ class Settings(BaseSettings):
     llm_timeout_s: float = 3.5
     llm_max_calls: int = 2
 
-    opstoken: str = ""
+    ops_token: str = ""
 
 
 settings = Settings()

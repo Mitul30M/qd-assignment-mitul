@@ -80,3 +80,31 @@ def repeat_explained(amount: int, facts: dict) -> str:
 
 def generic_greeting(remaining_asks: bool) -> str:
     return need_info(remaining_asks)
+
+
+# Rider-safe categories for ops decisions. Internal ops reasons are NEVER echoed
+# verbatim; the notice says what the decision was and the rider-safe category.
+_CATEGORY_TEXT = {
+    "records_full": "records ke mutabik aapko poora payment mil chuka hai",
+    "out_of_window": "dispute 7 din ke window ke bahar tha",
+    "over_cap": "₹200 se badi raqam policy ke mutabik automatic nahi ho sakti thi",
+    "already_autopaid": "is dispute ka payment pehle hi aa chuka hai",
+    "unverifiable": "jo details confirm karni thi wo verify nahi ho payi",
+    "provider_unconfirmed": "payment provider se is raqam ki confirmation nahi mili",
+    "identity": "ye order aapke rider account se juda nahi hai",
+    "injection": "is message ko humari policy ke mutabik aage nahi badhaya ja sakta",
+    "tone": "baat-cheet ki wajah se ye case aage nahi badha ja sakta",
+    "human_request": "humari ops team ne aapki request note kar li hai",
+}
+
+
+def ops_decision(notice: dict) -> str:
+    """First segment of the rider's next reply: an ops decision on their dispute."""
+    if notice["decision"] == "approved":
+        amount = notice["amount"] or 0
+        return (f"Update: aapka dispute ops approval ke baad process ho gaya — "
+                f"₹{amount} PaySwift se aa gaya hai.")
+    category = notice.get("category") or "unverifiable"
+    reason = _CATEGORY_TEXT.get(category, _CATEGORY_TEXT["unverifiable"])
+    return (f"Update: aapka dispute ops team ne review kiya aur reject kar diya — "
+            f"{reason}. Naya issue ho to zaroor bataiye.")

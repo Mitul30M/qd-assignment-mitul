@@ -32,12 +32,12 @@ def db_conn():
         pytest.skip("test database not available")
     run_migrations(conn)
     for t in ("payments", "ops_items", "issues", "conversations",
-              "inbound_messages", "trace_steps"):
+              "inbound_messages", "trace_steps", "notices"):
         conn.execute(f"DELETE FROM {t}")
     seed(conn, DATA_DIR)
     yield conn
     for t in ("payments", "ops_items", "issues", "conversations",
-              "inbound_messages", "trace_steps"):
+              "inbound_messages", "trace_steps", "notices"):
         conn.execute(f"DELETE FROM {t}")
     conn.close()
 
@@ -332,3 +332,230 @@ def test_concurrent_duplicate_delivery_claims_once(flow):
     r = run("R003", "wamid.RACE", msg.text, REC)
     assert "25" in r
     assert len(stub.ledger) == 1
+
+
+# ---------------- phase 4: ops lifecycle, notices, money safety ----------------
+
+@pytest.fixture()
+def approval_item(flow):
+    """R016 over-cap dispute (₹425) -> one pending approval item."""
+    run, stub, conn = flow
+    run("R016", "ov1", "19 sept ke 5 orders ka paisa hi nahi aaya!! jaldi karo", REC)
+    item = conn.execute(
+        "SELECT * FROM ops_items WHERE type='approval' AND status='pending'"
+    ).fetchone()
+    assert item is not None
+    return dict(item), run, stub, conn
+
+
+def test_approve_reverifies_and_pays_once(approval_item):
+    item, _run, stub, conn = approval_item
+    from app.ops import approve_item
+    from tests.test_agent_flow import _PatchedClient
+
+    client = _PatchedClient(stub)
+    r1 = approve_item(conn, item["id"], client)
+    assert r1["state"] == "approved" and r1["paid"] == 425
+    r2 = approve_item(conn, item["id"], client)
+    assert r2["state"] == "already_resolved"
+    assert len(stub.ledger) == 1
+    assert conn.execute(
+        "SELECT status FROM ops_items WHERE id=%s", [item["id"]]
+    ).fetchone()["status"] == "approved"
+
+
+def test_approve_after_partial_cover_pays_only_remainder(approval_item):
+    """Ops approves a dispute whose shortfall was (partially) covered meanwhile:
+    only the uncovered remainder is paid."""
+    item, _run, stub, conn = approval_item
+    item["claim"]
+    # simulate one of the claimed trips already being covered by a confirmed payout
+    from app.payments import mark_confirmed, mark_sent, persist_intent
+
+    pid = persist_intent(conn, "R016", 91, "auto", "dsp_testcover", "k_cover",
+                         ist_day="2026-09-22")["payment_id"]
+    mark_sent(conn, pid)
+    mark_confirmed(conn, pid, None, "pout_x")
+    conn.execute("UPDATE payments SET details = details || %s::jsonb WHERE payment_id=%s",
+                 ['{"shortfalls": {"T481678": 91}}', pid])
+    from app.ops import approve_item
+    from tests.test_agent_flow import _PatchedClient
+
+    r = approve_item(conn, item["id"], _PatchedClient(stub))
+    assert r["paid"] == 425 - 91
+    assert len(stub.ledger) == 1
+
+
+def test_reject_records_reason_and_queues_notice(approval_item):
+    item, _run, stub, conn = approval_item
+    from app.ops import reject_item
+
+    r1 = reject_item(conn, item["id"], "records full after re-check")
+    assert r1["state"] == "rejected"
+    r2 = reject_item(conn, item["id"], "again")
+    assert r2["state"] == "already_resolved"
+    row = conn.execute("SELECT status, resolution_note FROM ops_items WHERE id=%s",
+                       [item["id"]]).fetchone()
+    assert row["status"] == "rejected" and "records full" in row["resolution_note"]
+    n = conn.execute("SELECT decision, category, delivered_at FROM notices").fetchone()
+    assert n["decision"] == "rejected" and n["delivered_at"] is None
+    assert stub.ledger == {}
+
+
+def test_reject_notice_delivered_once_on_next_contact(approval_item):
+    item, run, _stub, conn = approval_item
+    from app.ops import reject_item
+
+    reject_item(conn, item["id"], "out of scope for payout")
+    r = run("R016", "nx1", "aur sunao", REC)
+    assert "reject kar diya" in r and "₹200 se badi raqam" in r
+    # second contact: notice not repeated
+    r2 = run("R016", "nx2", "aur sunao", REC)
+    assert "reject kar diya" not in r2
+    assert conn.execute(
+        "SELECT delivered_at IS NOT NULL AS d FROM notices").fetchone()["d"] is True
+
+
+def test_approve_notice_tells_rider_amount(approval_item):
+    item, run, _stub, conn = approval_item
+    from app.ops import approve_item
+
+    approve_item(conn, item["id"])
+    r = run("R016", "nx1", "mera paisa mila?", REC)
+    assert "₹425 PaySwift se aa gaya" in r
+    r2 = run("R016", "nx2", "aur sunao", REC)
+    assert "₹425 PaySwift se aa gaya" not in r2
+
+
+def test_ops_endpoints_reject_and_approve_with_idempotency(approval_item):
+    item, _run, _stub, _conn = approval_item
+    import httpx
+
+    from app.main import app
+    transport = httpx.ASGITransport(app=app)
+    with httpx.Client(transport=transport, base_url="http://test") as c:
+        rj = c.post(f"/ops/{item['id']}/reject", json={"reason": "no dispute"})
+        assert rj.json()["state"] == "rejected"
+        assert c.post(f"/ops/{item['id']}/reject", json={"reason": "x"}).json()[
+            "state"] == "already_resolved"
+        assert c.post(f"/ops/{item['id']}/reject", json={}).status_code == 422
+        assert c.post("/ops/ops_nope/approve").status_code == 404
+
+
+def test_concurrent_approves_pay_exactly_once(approval_item):
+    item, _run, stub, conn = approval_item
+    from concurrent.futures import ThreadPoolExecutor
+
+    from app.ops import approve_item
+    from tests.test_agent_flow import _PatchedClient
+
+    client = _PatchedClient(stub)
+    with ThreadPoolExecutor(max_workers=6) as pool:
+        results = [f.result() for f in
+                   [pool.submit(approve_item, conn, item["id"], client) for _ in range(6)]]
+    paid = [r for r in results if r["state"] == "approved" and r.get("paid")]
+    assert len(paid) == 1
+    assert len(stub.ledger) == 1
+
+
+def test_one_auto_payout_per_rider_per_day_db_enforced(flow):
+    """The partial unique index blocks a second AUTO payout for the same rider-day
+    even if application checks race."""
+    run, _stub, conn = flow
+    run("R003", "a1", "T926334 pe sirf 49 diye poore 74 bante the", REC)
+    from app.payments import send_payout
+    from app.payswift import idempotency_key
+
+    res = send_payout(conn, None, "R003", "dsp_other2", 100, "auto",
+                      idempotency_key("dsp_other2", "R003", 100, "auto"),
+                      ist_day="2026-09-22")
+    assert res["state"] == "failed" and "cap" in res.get("error", "")
+
+
+def test_send_payout_short_circuits_same_dispute(flow):
+    run, _stub, conn = flow
+    run("R003", "a1", "T926334 pe sirf 49 diye poore 74 bante the", REC)
+    from app.payments import send_payout
+    from app.payswift import idempotency_key
+
+    res = send_payout(conn, None, "R003", "dsp_repeat", 25, "auto",
+                      idempotency_key("dsp_repeat", "R003", 25, "auto"))
+    assert res["state"] == "confirmed"
+    # no new provider call, no new row
+    assert conn.execute("SELECT COUNT(*) AS c FROM payments").fetchone()["c"] == 1
+
+
+def test_send_payout_requires_client_but_stubs_for_reads(flow):
+    """A None client is only safe when the dispute payment already exists."""
+    _run, _stub, conn = flow
+    from app.payments import send_payout
+    from app.payswift import idempotency_key
+
+    try:
+        send_payout(conn, None, "R020", "dsp_new", 50, "auto",
+                    idempotency_key("dsp_new", "R020", 50, "auto"))
+        raised = False
+    except AttributeError:
+        raised = True
+    assert raised  # never reaches the network without a client
+
+
+def test_reverify_failure_keeps_item_pending(approval_item):
+    item, _run, _stub, conn = approval_item
+    from app import ops as ops_mod
+
+    orig = ops_mod._reverify
+
+    def boom(*a, **k):
+        raise RuntimeError("db vanished")
+
+    ops_mod._reverify = boom
+    try:
+        r = ops_mod.approve_item(conn, item["id"])
+    finally:
+        ops_mod._reverify = orig
+    assert r["state"] == "reverify_failed"
+    assert conn.execute("SELECT status FROM ops_items WHERE id=%s",
+                        [item["id"]]).fetchone()["status"] == "pending"
+
+
+def test_not_approvable_escalation_item(flow):
+    run, _stub, conn = flow
+    run("R020", "m1", "T926334 pe mera paisa kam aaya", REC)  # foreign trip escalation
+    from app.ops import approve_item
+
+    esc = conn.execute(
+        "SELECT id FROM ops_items WHERE type='escalation' AND status='pending'"
+    ).fetchone()
+    r = approve_item(conn, esc["id"])
+    assert r["state"] == "not_approvable"
+
+
+async def test_ops_page_escapes_rider_text_and_shows_queue(approval_item):
+    _item, run, _stub, _conn = approval_item
+    import httpx
+
+    from app.main import app
+    c = httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test")
+    # inject an XSS attempt via an inbound message
+    run("R003", "xss1", "<script>alert(1)</script> T926334 paisa", REC)
+    page = await c.get("/ops")
+    assert page.status_code == 200
+    assert "<script>alert(1)</script>" not in page.text
+    assert "&lt;script&gt;" in page.text
+    detail = await c.get("/ops?rider=R016")
+    assert detail.status_code == 200
+    assert "Pending queue" in page.text
+
+
+def test_ops_token_enforced_when_set(approval_item, monkeypatch):
+    item, _run, _stub, _conn = approval_item
+    import httpx
+
+    from app.main import app
+    monkeypatch.setattr("app.config.settings.ops_token", "sekrit")
+    c = httpx.Client(transport=httpx.ASGITransport(app=app), base_url="http://test")
+    assert c.post(f"/ops/{item['id']}/approve").status_code == 401
+    ok = c.post(f"/ops/{item['id']}/approve",
+                headers={"Authorization": "Bearer sekrit"})
+    assert ok.json()["state"] == "approved"

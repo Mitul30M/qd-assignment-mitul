@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import datetime
 import hashlib
+import json
 import re
 import uuid
 from decimal import Decimal
@@ -63,7 +64,8 @@ def _handle_claim_verdict(conn, rider_id, received_at, received_day, convo, clai
             trip_ids.append(tid)
     if foreign:
         _record_ops(conn, rider_id, "escalation", None,
-                    f"{rider_id} disputes trip {foreign['trip_id']} owned by {foreign['owner']}")
+                    f"{rider_id} disputes trip {foreign['trip_id']} owned by {foreign['owner']}",
+                    category="identity")
         return replies.identity_bound(), "NOT_RIDERS_TRIP", False
 
     out_of_window = [d for d in days if not _window_ok(d, received_at)]
@@ -84,7 +86,8 @@ def _handle_claim_verdict(conn, rider_id, received_at, received_day, convo, clai
                                            [])
             issues.set_outcome(conn, issue_id, "OUT_OF_WINDOW", "resolved")
             _record_ops(conn, rider_id, "escalation", None,
-                        f"out-of-window dispute {issue_id} (informational)")
+                        f"out-of-window dispute {issue_id} (informational)",
+                        category="out_of_window", issue_id=issue_id)
             return replies.out_of_window(evidence_days[0]), "OUT_OF_WINDOW", False
         trace(conn, rider_id, "decision", "drop_unverifiable_day",
               {"out_of_window": out_of_window}, {"note": "no rider rows for that day"})
@@ -113,7 +116,7 @@ def _handle_claim_verdict(conn, rider_id, received_at, received_day, convo, clai
     trace(conn, rider_id, "decision", "outcome", {"issue_id": issue_id},
           {"outcome": outcome, "kind": kind, "days": days, "trips": trip_ids})
     segment, did_pay = _act(conn, rider_id, outcome, verdict, facts, claim, issue_id,
-                            days, received_day)
+                            days, received_day, received_at)
     return segment, outcome, did_pay
 
 
@@ -138,7 +141,8 @@ def _no_claim_reply(conn, rider_id: str, received_day) -> tuple[str, str]:
               {"ask": asks + 1, "policy": "one clarifying ask, then route out"})
         return replies.need_info(True), "NEED_INFO", False
     _record_ops(conn, rider_id, "escalation", None,
-                "unverifiable: clarification beyond first ask")
+                "unverifiable: clarification beyond first ask", category="unverifiable",
+                issue_id=issue_id)
     trace(conn, rider_id, "decision", "escalate", {"issue_id": issue_id},
           {"reason": "clarify limit"})
     issues.set_outcome(conn, issue_id, "ESC", "open")
@@ -204,8 +208,8 @@ def _decide_outcome(claim, verdict) -> str:
     return "NEED_INFO"
 
 
-def _act(conn, rider_id, outcome, verdict, facts, claim, issue_id, days, received_day) \
-        -> tuple[str, bool]:
+def _act(conn, rider_id, outcome, verdict, facts, claim, issue_id, days, received_day,
+         received_at) -> tuple[str, bool]:
     if outcome == "PAY-DECIDED":
         from app.payments import list_for_rider_day, send_payout
 
@@ -225,6 +229,8 @@ def _act(conn, rider_id, outcome, verdict, facts, claim, issue_id, days, receive
             if remainder:
                 effective[key] = remainder
         amount = sum(effective.values())
+        claim_ctx = {"kind": claim["kind"], "days": days, "trip_ids": claim.get("trip_ids") or [],
+                     "received_at": received_at, "shortfalls": effective}
         if not amount:
             trace(conn, rider_id, "decision", "repeat_dispute_guard",
                   {"covered": covered}, {"outcome": "ALREADY_PAID"})
@@ -249,12 +255,15 @@ def _act(conn, rider_id, outcome, verdict, facts, claim, issue_id, days, receive
                   {"dispute_id": dispute_id, "amount": amount}, result)
             _record_ops(conn, rider_id, "approval", amount,
                         f"payout {result['state']}: "
-                        f"{(result.get('error') or '')[:120]}", dispute_id)
+                        f"{(result.get('error') or '')[:120]}", dispute_id,
+                        category="provider_unconfirmed", claim=claim_ctx, issue_id=issue_id)
             issues.set_outcome(conn, issue_id, "PAY", "pending_approval")
             return replies.approval_logged(
                 amount, "PaySwift se confirm nahi hua; ops approval ke baad jayega", facts), False
         reason = verdict["reason"] or "routes outside auto at the moment"
-        _record_ops(conn, rider_id, "approval", amount, reason, dispute_id)
+        category = "over_cap" if "exceeds" in (verdict["reason"] or "") else "already_autopaid"
+        _record_ops(conn, rider_id, "approval", amount, reason, dispute_id,
+                    category=category, claim=claim_ctx, issue_id=issue_id)
         trace(conn, rider_id, "decision", "approval_logged",
               {"dispute_id": dispute_id, "amount": amount},
               {"reason": reason, "route": verdict["route"]})
@@ -271,7 +280,9 @@ def _act(conn, rider_id, outcome, verdict, facts, claim, issue_id, days, receive
 
     if outcome == "ESCALATE":
         _record_ops(conn, rider_id, "escalation", None,
-                    claim.get("tone_flag") or claim["kind"] or "unverifiable")
+                    claim.get("tone_flag") or claim["kind"] or "unverifiable",
+                    category="tone" if claim.get("tone_flag") else "unverifiable",
+                    issue_id=issue_id)
         issues.set_outcome(conn, issue_id, "ESC", "open")
         return replies.escalation("human"), False
 
@@ -283,7 +294,8 @@ def _act(conn, rider_id, outcome, verdict, facts, claim, issue_id, days, receive
               {"ask": asks + 1})
         return replies.need_info(True), False
     _record_ops(conn, rider_id, "escalation", None,
-                "unverifiable: clarification beyond first ask")
+                "unverifiable: clarification beyond first ask", category="unverifiable",
+                issue_id=issue_id)
     trace(conn, rider_id, "decision", "escalate", {"issue_id": issue_id},
           {"reason": "clarify limit"})
     issues.set_outcome(conn, issue_id, "ESC", "open")
@@ -314,12 +326,15 @@ def deterministic_dispute_id(rider_id: str, kind: str, days: list[str]) -> str:
 
 
 def _record_ops(conn, rider_id: str, type_: str, amount: int | None, reason: str,
-                dispute_id: str | None = None) -> str:
+                dispute_id: str | None = None, category: str | None = None,
+                claim: dict | None = None, issue_id: str | None = None) -> str:
     ops_id = f"ops_{dispute_id}" if dispute_id else f"ops_{uuid.uuid4().hex[:10]}"
     conn.execute(
-        "INSERT INTO ops_items (id, rider_id, type, amount, reason) VALUES (%s,%s,%s,%s,%s) "
+        "INSERT INTO ops_items (id, rider_id, type, amount, reason, category, claim, "
+        "issue_id) VALUES (%s,%s,%s,%s,%s,%s,%s,%s) "
         "ON CONFLICT (id) DO UPDATE SET reason = EXCLUDED.reason",
-        [ops_id, rider_id, type_, amount, reason],
+        [ops_id, rider_id, type_, amount, reason, category,
+         json.dumps(claim) if claim else None, issue_id],
     )
     return ops_id
 
