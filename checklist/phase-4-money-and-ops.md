@@ -342,6 +342,43 @@ docker compose exec -T postgres psql -U qd -d qd -c \
 After an approved or rejected decision, send the rider a new message and verify
 that the queued notice is included once in the response and then marked delivered.
 
+The assignment has no outbound rider notification endpoint, so the ops action
+does not immediately produce a separate HTTP response to the rider. The notice
+is delivered on the rider's next `POST /messages` request. For the approved
+`R034` item, use:
+
+```bash
+curl --fail --request POST http://localhost:8000/messages \
+  --header 'Content-Type: application/json' \
+  --data '{
+    "message_id": "phase4-rider-followup-001",
+    "rider_id": "R034",
+    "text": "Mera dispute ka kya update hai?",
+    "received_at": "2026-09-23T12:00:00+05:30"
+  }'
+```
+
+The response should begin with a rider-facing approval update similar to:
+
+```text
+Update: aapka dispute ops approval ke baad process ho gaya — ₹249 PaySwift se aa gaya hai.
+```
+
+For a rejection, the response begins with a rejection update and the stored
+category explanation. Confirm that the notice was consumed exactly once:
+
+```bash
+docker compose exec -T postgres psql -U qd -d qd -c \
+  "SELECT rider_id, ops_item_id, decision, amount, delivered_at
+   FROM notices
+   WHERE rider_id = 'R034'
+   ORDER BY created_at DESC;"
+```
+
+`delivered_at` should be populated after the follow-up message. Replaying the
+same `message_id` returns the stored reply and does not deliver the notice a
+second time.
+
 ### 7. Run the deterministic Phase 4 test suite
 
 The host-side integration tests use the Postgres port exposed by Compose:
