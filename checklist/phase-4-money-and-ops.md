@@ -358,10 +358,12 @@ curl --fail --request POST http://localhost:8000/messages \
   }'
 ```
 
-The response should begin with a rider-facing approval update similar to:
+The response should begin with a rider-facing approval update similar to. The
+rest of the response may contain the normal reply to the follow-up message; in
+this example, the vague question can add a clarification prompt:
 
 ```text
-Update: aapka dispute ops approval ke baad process ho gaya — ₹249 PaySwift se aa gaya hai.
+Update: aapka dispute ops approval ke baad process ho gaya — ₹249 PaySwift se aa gaya hai. Samajh nahi pa raha — kaunsi date ya kaunsa order id (jaise T123456) galat lag raha hai? Bata dijiye.
 ```
 
 For a rejection, the response begins with a rejection update and the stored
