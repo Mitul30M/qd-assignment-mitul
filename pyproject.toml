@@ -27,6 +27,10 @@ dev = [
 line-length = 100
 target-version = "py314"
 
+[tool.ruff.lint]
+extend-select = ["B", "SIM", "UP"]
+ignore = ["BLE001", "SIM115"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"

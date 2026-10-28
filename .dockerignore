@@ -1,0 +1,14 @@
+.venv/
+.git/
+ai-logs/
+checklist/
+.github/
+tests/
+clangd/
+docs/
+*.md
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+.env
+.python-version

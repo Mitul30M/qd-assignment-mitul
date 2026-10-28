@@ -1,0 +1,33 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.14"
+      - run: uv run ruff check .
+      - run: uv run pytest -q
+      - name: compose build + start + health
+        run: |
+          docker compose build
+          docker compose up -d --wait
+          curl -fsS http://localhost:8000/health
+      - name: duplicate message id returns stable reply
+        run: |
+          set -e
+          BODY='{"message_id":"wamid.CI-DUP-1","rider_id":"R003","text":"bhai payout galat aaya hai","received_at":"2026-09-22T09:00:00+05:30"}'
+          R1=$(curl -fsS -X POST -H 'Content-Type: application/json' -d "$BODY" http://localhost:8000/messages)
+          R2=$(curl -fsS -X POST -H 'Content-Type: application/json' -d "$BODY" http://localhost:8000/messages)
+          [ "$R1" = "$R2" ]
+          curl -fsS http://localhost:8000/trace/R003 > /dev/null
+          curl -fsS http://localhost:8000/ops/pending > /dev/null
+      - name: teardown
+        if: always()
+        run: docker compose down -v
