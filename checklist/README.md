@@ -179,7 +179,9 @@ second approval.
 
 ### 5. Try a pending-approval case
 
-Use a rider whose claim needs approval because it exceeds the automatic cap:
+Use a rider whose claim needs approval because it exceeds the automatic cap. This must include
+specific evidence (date or trip/order context), otherwise the app will ask for missing details
+instead of creating a pending ops item.
 
 ```bash
 curl --fail --request POST http://localhost:8000/messages \
@@ -187,7 +189,7 @@ curl --fail --request POST http://localhost:8000/messages \
   --data '{
     "message_id": "demo-approval-001",
     "rider_id": "R034",
-    "text": "Mera dispute ka kya update hai?",
+    "text": "Sep 19 ko 3 orders ka paisa missing hai payout mein",
     "received_at": "2026-09-23T12:00:00+05:30"
   }'
 ```
@@ -197,6 +199,9 @@ Then inspect the pending queue:
 ```bash
 curl --fail http://localhost:8000/ops/pending
 ```
+
+This should produce a pending approval/escalation item for the verified shortfall, not a
+follow-up question for more data.
 
 ### 6. Run the Python test suite
 
