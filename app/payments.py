@@ -13,6 +13,7 @@ at startup — reconcile-before-retry, never a blind double-send.
 from __future__ import annotations
 
 import json
+import time
 import uuid
 
 import psycopg
@@ -81,6 +82,19 @@ def list_for_rider_day(conn, rider_id: str, ist_day: str) -> list[dict]:
     return [dict(r) for r in rows]
 
 
+def _find_provider_payout(client: PaySwiftClient, rider_id: str,
+                          dispute_id: str) -> dict | None:
+    """Poll briefly for a write that PaySwift acknowledged asynchronously."""
+    for attempt in range(3):
+        ledger = client.ledger_for(rider_id)
+        match = next((p for p in ledger if p.get("reference") == dispute_id), None)
+        if match:
+            return match
+        if attempt < 2:
+            time.sleep(0.2 * (2 ** attempt))
+    return None
+
+
 def reconcile_stuck_sent(conn, client: PaySwiftClient) -> list[dict]:
     """Startup recovery: `sent` rows with unknown outcome are resolved by reconciling
     against PaySwift's ledger — never by a blind duplicate send."""
@@ -114,15 +128,29 @@ def send_payout(conn, client: PaySwiftClient, rider_id: str, dispute_id: str, am
 
     Idempotent per dispute: an existing active payment for the same dispute key is
     returned as-is (concurrent approvals/messages converge on one payout)."""
-    existing = conn.execute(
-        "SELECT * FROM payments WHERE rider_id = %s AND dispute_id = %s "
-        "AND state <> 'failed' ORDER BY created_at DESC LIMIT 1",
-        [rider_id, dispute_id],
-    ).fetchone()
-    if existing:
-        return dict(existing)
     if client is None:
         client = PaySwiftClient()
+    existing = conn.execute(
+        "SELECT * FROM payments WHERE rider_id = %s AND dispute_id = %s "
+        "ORDER BY created_at DESC LIMIT 1",
+        [rider_id, dispute_id],
+    ).fetchone()
+    if existing and existing["state"] != "failed":
+        return dict(existing)
+    if existing:
+        try:
+            match = _find_provider_payout(client, rider_id, dispute_id)
+        except PaySwiftError:
+            match = None
+        if match:
+            mark_confirmed(conn, existing["payment_id"], None, match.get("payout_id"))
+            conn.execute(
+                "UPDATE ops_items SET status = 'approved', resolved_at = now(), "
+                "resolution_note = 'provider-confirmed retry' "
+                "WHERE id = %s AND status = 'pending' AND category = 'provider_unconfirmed'",
+                [f"ops_{dispute_id}"],
+            )
+            return get(conn, existing["payment_id"]) or dict(existing)
     payment_id = f"pay_{uuid.uuid4().hex[:12]}"
     try:
         intent = persist_intent(conn, rider_id, amount, purpose, dispute_id, idem_key,
@@ -150,17 +178,22 @@ def send_payout(conn, client: PaySwiftClient, rider_id: str, dispute_id: str, am
     except PaySwiftError as exc:
         # No answer is not proof of no write: reconcile, don't blindly resend.
         try:
-            ledger = client.ledger_for(rider_id)
+            match = _find_provider_payout(client, rider_id, dispute_id)
         except PaySwiftError as ledger_exc:
             mark_failed(conn, payment_id, f"payswift unreachable ({ledger_exc}); outcome unknown")
         else:
-            if any(p.get("reference") == dispute_id for p in ledger):
-                mark_confirmed(conn, payment_id, None,
-                               next(p.get("payout_id") for p in ledger if p.get("reference") == dispute_id))
+            if match:
+                mark_confirmed(conn, payment_id, None, match.get("payout_id"))
             else:
                 mark_failed(conn, payment_id, f"reconciled absent: {exc}")
     else:
         mark_confirmed(conn, payment_id, result, result.payout_id)
+        conn.execute(
+            "UPDATE ops_items SET status = 'approved', resolved_at = now(), "
+            "resolution_note = 'provider-confirmed retry' "
+            "WHERE id = %s AND status = 'pending' AND category = 'provider_unconfirmed'",
+            [f"ops_{dispute_id}"],
+        )
     payment = get(conn, payment_id)
     assert payment is not None, "payment row vanished after send_payout"
     return payment

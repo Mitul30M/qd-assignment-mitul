@@ -59,6 +59,9 @@ def fallback_triage(text: str, received_at_ist: datetime.date) -> dict:
             continue
         issues_out.append({"kind": infer_kind_blind(sentence), "trip_ids": trips,
                            "days": days, "claimed_amount": claimed})
+    if len(issues_out) == 1 and not issues_out[0]["trip_ids"] \
+            and infer_kind_blind(text) == "incentive":
+        issues_out[0]["kind"] = "incentive"
     if not issues_out:
         issues_out = []
     return {
@@ -193,6 +196,8 @@ def claim_regex(text: str) -> int | None:
 def infer_kind_blind(text: str) -> str:
     t = text.lower()
     if "incentive" in t or "bonous" in t or "bonus" in t:
+        return "incentive"
+    if re.search(r"\b(?:12|1[3-9]|[2-9]\d)\s*(?:se\s+zyada\s+)?orders?\b", t):
         return "incentive"
     if "penalty" in t or "penalti" in t or "cancel" in t:
         return "penalty"

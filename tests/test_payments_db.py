@@ -71,6 +71,26 @@ class ScriptedClient(PaySwiftClient):
         return [r for r in self.ledger_rows if r["rider_id"] == rider_id]
 
 
+def test_ambiguous_write_is_polled_before_marking_failed(db_conn):
+    class DelayedLedgerClient(ScriptedClient):
+        def __init__(self):
+            super().__init__(["timeout"])
+            self.reads = 0
+
+        def ledger_for(self, rider_id):
+            self.reads += 1
+            if self.reads == 3:
+                return [{"payout_id": "pout_delayed", "rider_id": rider_id,
+                         "amount": 5, "reference": "disp-delayed"}]
+            return []
+
+    client = DelayedLedgerClient()
+    payment = send_payout(db_conn, client, "RTESTDELAY", "disp-delayed", 5, "surge",
+                          idempotency_key("disp-delayed", "RTESTDELAY", 5, "surge"))
+    assert payment["state"] == "confirmed"
+    assert payment["provider_payout_id"] == "pout_delayed"
+
+
 def test_intent_persisted_before_call_and_confirmed(db_conn):
     before = get(db_conn, "nonexistent") is None
     assert before

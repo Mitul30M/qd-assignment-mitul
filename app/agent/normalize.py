@@ -68,10 +68,14 @@ def normalize_dates(text: str, received_at_ist: datetime.date) -> list[datetime.
     for m in MONTHDAY_RE.finditer(t):
         dts.append(existing_or_nearest(received_at_ist, int(m.group(2)), month=9))
     for m in DAYNUM_RE.finditer(t):
+        if re.match(r"\s*(?:se\s+zyada\s+)?orders?\b", t[m.end():]):
+            continue
         day = int(m.group(1))
         if 1 <= day <= 31:
             dts.append(existing_or_nearest(received_at_ist, day))
     for m in DAYNUM_WORDS.finditer(t):
+        if re.match(r"\s*(?:se\s+zyada\s+)?orders?\b", t[m.end():]):
+            continue
         day = int(m.group(1))
         if 1 <= day <= 31:
             dts.append(existing_or_nearest(received_at_ist, day))

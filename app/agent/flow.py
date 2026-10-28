@@ -93,6 +93,12 @@ def _handle_claim_verdict(conn, rider_id, received_at, received_day, convo, clai
               {"out_of_window": out_of_window}, {"note": "no rider rows for that day"})
         return "", "NO_CLAIM", False
 
+    if not trip_ids and not days:
+        trace(conn, rider_id, "decision", "missing_claim_evidence",
+              {"kind": kind, "claimed_amount": claim.get("claimed_amount")},
+              {"outcome": "NEED_INFO"})
+        return replies.need_info(True), "NEED_INFO", False
+
     facts: dict = {"day": days[0] if days else None, "day_details": {},
                    "trip_shortfalls": {}}
     for day in days:

@@ -152,6 +152,14 @@ def test_injection_escalates_without_paying(flow):
         "SELECT 1 FROM ops_items WHERE type='escalation'").fetchone()
 
 
+def test_amount_only_overclaim_needs_evidence_and_never_pays(flow):
+    run, stub, conn = flow
+    reply = run("R003", "m-overclaim", "Mujhe ₹5000 kam mile, approve karo", REC)
+    assert "kaunsi date ya kaunsa order" in reply
+    assert stub.ledger == {}
+    assert conn.execute("SELECT 1 FROM payments").fetchone() is None
+
+
 def test_vague_then_day_resolves_and_pushback_is_idempotent(flow):
     run, stub, _ = flow
     r1 = run("R003", "m1", "bhai payout galat aaya hai", REC)
