@@ -133,6 +133,14 @@ and the host-side integration tests. Run them from the repository root.
 
 ### 1. Start the complete stack
 
+For a reproducible walkthrough, reset the local database before the first run.
+This removes only the local Compose database volume; do not use it if you want to
+preserve existing test data:
+
+```bash
+docker compose down -v
+```
+
 ```bash
 docker compose up -d --build --wait
 ```
@@ -167,8 +175,8 @@ curl --fail --request POST http://localhost:8000/messages \
   }'
 ```
 
-The response should explain the verified shortfall and confirm the payout only
-after PaySwift confirms it. Inspect the persisted payment:
+On a clean database, the first request should explain the verified shortfall and
+confirm the payout only after PaySwift confirms it. Inspect the persisted payment:
 
 ```bash
 docker compose exec -T postgres psql -U qd -d qd -c \
@@ -185,6 +193,12 @@ Expected observations:
 - a non-empty provider payout ID;
 - a deterministic dispute/reference and idempotency key;
 - `ist_day` equal to `2026-09-22`.
+
+If the command has already been run, a response such as
+`₹25 PaySwift se aa chuke hain. Dobara payment nahi ho sakta.` is the correct
+result: the duplicate/repeat guard found the existing confirmed payment and
+prevented a second payout. Use the clean-database reset in Step 1 if you need to
+observe the initial auto-pay response again.
 
 ### 3. Prove message idempotency and no duplicate payout
 
