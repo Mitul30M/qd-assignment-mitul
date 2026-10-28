@@ -121,6 +121,8 @@ def send_payout(conn, client: PaySwiftClient, rider_id: str, dispute_id: str, am
     ).fetchone()
     if existing:
         return dict(existing)
+    if client is None:
+        client = PaySwiftClient()
     payment_id = f"pay_{uuid.uuid4().hex[:12]}"
     try:
         intent = persist_intent(conn, rider_id, amount, purpose, dispute_id, idem_key,

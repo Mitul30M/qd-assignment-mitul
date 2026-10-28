@@ -36,6 +36,29 @@ def _cas_resolve(conn, ops_id: str, status: str, note: str) -> bool:
     return cur.rowcount == 1
 
 
+def _claim_approval(conn, ops_id: str) -> bool:
+    """Reserve an approval before re-verification and provider I/O.
+
+    The reservation is a database CAS, so concurrent workers cannot both
+    re-verify and pay the same queue item. It is released if verification or
+    payment does not reach a confirmed outcome.
+    """
+    cur = conn.execute(
+        "UPDATE ops_items SET status = 'processing' "
+        "WHERE id = %s AND type = 'approval' AND status = 'pending'",
+        [ops_id],
+    )
+    return cur.rowcount == 1
+
+
+def _release_approval(conn, ops_id: str, note: str) -> None:
+    conn.execute(
+        "UPDATE ops_items SET status = 'pending', resolution_note = %s "
+        "WHERE id = %s AND status = 'processing'",
+        [note[:500], ops_id],
+    )
+
+
 def _reverify(conn, item: dict) -> dict:
     """Recompute what is owed NOW from source rows (never trust the queue amount)."""
     ctx = item["claim"] or {}
@@ -69,18 +92,21 @@ def approve_item(conn, ops_id: str, client: PaySwiftClient | None = None) -> dic
     if item["type"] != "approval" or item["claim"] is None:
         return {"state": "not_approvable",
                 "reason": f"type={item['type']}, no stored claim context"}
+    if not _claim_approval(conn, ops_id):
+        current = _item(conn, ops_id)
+        return {"state": "already_resolved", "status": current["status"]}
     try:
         detail = _reverify(conn, item)
     except Exception as exc:  # item stays pending; ops sees the failure and can retry
-        conn.execute("UPDATE ops_items SET resolution_note = %s WHERE id = %s",
-                     [f"re-verify failed: {str(exc)[:200]}", ops_id])
+        _release_approval(conn, ops_id, f"re-verify failed: {str(exc)[:200]}")
         return {"state": "reverify_failed", "error": str(exc)[:200]}
     owed = sum(detail["effective"].values())
     if owed <= 0:
-        # CAS guards against a concurrent resolver; nothing owed either way.
-        if not _cas_resolve(conn, ops_id, "approved",
-                            f"re-verified: nothing owed ({detail['verdict']['reason']})"):
-            return {"state": "already_resolved", "status": _item(conn, ops_id)["status"]}
+        conn.execute(
+            "UPDATE ops_items SET status = 'approved', resolved_at = now(), "
+            "resolution_note = %s WHERE id = %s AND status = 'processing'",
+            [f"re-verified: nothing owed ({detail['verdict']['reason']})", ops_id],
+        )
         trace(conn, item["rider_id"], "decision", "ops_approve", {"ops_id": ops_id},
               {"owed": 0, "outcome": "NOTHING_OWED"})
         notices.queue_notice(conn, item["rider_id"], ops_id, "approved",
@@ -102,13 +128,17 @@ def approve_item(conn, ops_id: str, client: PaySwiftClient | None = None) -> dic
     trace(conn, item["rider_id"], "decision", "ops_approve", {"ops_id": ops_id},
           {"owed": owed, "payment_state": result["state"]})
     if result["state"] != "confirmed":
-        conn.execute("UPDATE ops_items SET resolution_note = %s WHERE id = %s",
-                     [f"payment {result['state']}: {(result.get('error') or 'unconfirmed')[:150]}",
-                      ops_id])
+        _release_approval(
+            conn,
+            ops_id,
+            f"payment {result['state']}: {(result.get('error') or 'unconfirmed')[:150]}",
+        )
         return {"state": f"payment_{result['state']}", "amount": owed}
-    if not _cas_resolve(conn, ops_id, "approved",
-                        f"approved and paid ₹{owed} ({result['payment_id']})"):
-        return {"state": "already_resolved", "status": _item(conn, ops_id)["status"]}
+    conn.execute(
+        "UPDATE ops_items SET status = 'approved', resolved_at = now(), "
+        "resolution_note = %s WHERE id = %s AND status = 'processing'",
+        [f"approved and paid ₹{owed} ({result['payment_id']})", ops_id],
+    )
     notices.queue_notice(conn, item["rider_id"], ops_id, "approved", amount=owed)
     if item["issue_id"]:
         issues.set_outcome(conn, item["issue_id"], "PAY", "resolved")

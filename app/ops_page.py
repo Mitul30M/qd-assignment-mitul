@@ -143,12 +143,13 @@ def _pending_table(conn) -> str:
 
 def _conversations(conn) -> str:
     rows = conn.execute(
-        "SELECT rider_id, COUNT(*) AS msgs, MAX(received_at) AS last_seen "
+        "SELECT rider_id, COUNT(*) AS msgs, MAX(received_at) AS last_seen, "
+        "(array_agg(text ORDER BY received_at DESC))[1] AS latest_text "
         "FROM inbound_messages GROUP BY rider_id ORDER BY last_seen DESC LIMIT 30"
     ).fetchall()
     links = " ".join(
         f'<a href="/ops?rider={_esc(r["rider_id"])}">{_esc(r["rider_id"])}</a> '
-        f'({_esc(r["msgs"])})' for r in rows)
+        f'({_esc(r["msgs"])}): {_esc(r["latest_text"])}' for r in rows)
     return f"<h2>Conversations</h2><p>{links or 'no messages yet'}</p>"
 
 

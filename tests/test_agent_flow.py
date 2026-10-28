@@ -24,13 +24,14 @@ def _conn():
 
 
 @pytest.fixture()
-def db_conn():
+def db_conn(monkeypatch):
     try:
         conn = _conn()
         conn.execute("SELECT 1")
     except psycopg.OperationalError:
         pytest.skip("test database not available")
     run_migrations(conn)
+    monkeypatch.setattr("app.config.settings.database_url", DSN)
     for t in ("payments", "ops_items", "issues", "conversations",
               "inbound_messages", "trace_steps", "notices"):
         conn.execute(f"DELETE FROM {t}")
@@ -417,10 +418,11 @@ def test_reject_notice_delivered_once_on_next_contact(approval_item):
 
 
 def test_approve_notice_tells_rider_amount(approval_item):
-    item, run, _stub, conn = approval_item
+    item, run, stub, conn = approval_item
     from app.ops import approve_item
+    from tests.test_agent_flow import _PatchedClient
 
-    approve_item(conn, item["id"])
+    approve_item(conn, item["id"], _PatchedClient(stub))
     r = run("R016", "nx1", "mera paisa mila?", REC)
     assert "₹425 PaySwift se aa gaya" in r
     r2 = run("R016", "nx2", "aur sunao", REC)
@@ -428,18 +430,29 @@ def test_approve_notice_tells_rider_amount(approval_item):
 
 
 def test_ops_endpoints_reject_and_approve_with_idempotency(approval_item):
-    item, _run, _stub, _conn = approval_item
+    item, _run, stub, _conn = approval_item
     import httpx
 
+    from app import ops as ops_module
     from app.main import app
     transport = httpx.ASGITransport(app=app)
-    with httpx.Client(transport=transport, base_url="http://test") as c:
-        rj = c.post(f"/ops/{item['id']}/reject", json={"reason": "no dispute"})
-        assert rj.json()["state"] == "rejected"
-        assert c.post(f"/ops/{item['id']}/reject", json={"reason": "x"}).json()[
-            "state"] == "already_resolved"
-        assert c.post(f"/ops/{item['id']}/reject", json={}).status_code == 422
-        assert c.post("/ops/ops_nope/approve").status_code == 404
+    async def exercise():
+        old_client = ops_module.PaySwiftClient
+        ops_module.PaySwiftClient = lambda *a, **k: _PatchedClient(stub)
+        try:
+            async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
+                rj = await c.post(f"/ops/{item['id']}/reject", json={"reason": "no dispute"})
+                assert rj.json()["state"] == "rejected"
+                assert (await c.post(f"/ops/{item['id']}/reject", json={"reason": "x"})).json()[
+                    "state"] == "already_resolved"
+                assert (await c.post(f"/ops/{item['id']}/reject", json={})).status_code == 422
+                assert (await c.post("/ops/ops_nope/approve")).status_code == 404
+        finally:
+            ops_module.PaySwiftClient = old_client
+
+    import asyncio
+
+    asyncio.run(exercise())
 
 
 def test_concurrent_approves_pay_exactly_once(approval_item):
@@ -478,26 +491,26 @@ def test_send_payout_short_circuits_same_dispute(flow):
     from app.payments import send_payout
     from app.payswift import idempotency_key
 
-    res = send_payout(conn, None, "R003", "dsp_repeat", 25, "auto",
-                      idempotency_key("dsp_repeat", "R003", 25, "auto"))
+    dispute_id = conn.execute(
+        "SELECT dispute_id FROM payments WHERE rider_id = 'R003' LIMIT 1"
+    ).fetchone()["dispute_id"]
+    res = send_payout(conn, None, "R003", dispute_id, 25, "auto",
+                      idempotency_key(dispute_id, "R003", 25, "auto"))
     assert res["state"] == "confirmed"
     # no new provider call, no new row
     assert conn.execute("SELECT COUNT(*) AS c FROM payments").fetchone()["c"] == 1
 
 
-def test_send_payout_requires_client_but_stubs_for_reads(flow):
-    """A None client is only safe when the dispute payment already exists."""
+def test_send_payout_without_client_reports_provider_failure(flow):
+    """A missing client uses configured PaySwift and reports unavailable provider state."""
     _run, _stub, conn = flow
     from app.payments import send_payout
     from app.payswift import idempotency_key
 
-    try:
-        send_payout(conn, None, "R020", "dsp_new", 50, "auto",
-                    idempotency_key("dsp_new", "R020", 50, "auto"))
-        raised = False
-    except AttributeError:
-        raised = True
-    assert raised  # never reaches the network without a client
+    result = send_payout(conn, None, "R020", "dsp_new", 50, "auto",
+                         idempotency_key("dsp_new", "R020", 50, "auto"))
+    assert result["state"] == "failed"
+    assert result["error"]
 
 
 def test_reverify_failure_keeps_item_pending(approval_item):
@@ -531,14 +544,20 @@ def test_not_approvable_escalation_item(flow):
     assert r["state"] == "not_approvable"
 
 
-async def test_ops_page_escapes_rider_text_and_shows_queue(approval_item):
-    _item, run, _stub, _conn = approval_item
+async def test_ops_page_escapes_rider_text_and_shows_queue(approval_item, monkeypatch):
+    _item, _run, _stub, conn = approval_item
     import httpx
 
     from app.main import app
+    monkeypatch.setattr("app.config.settings.database_url", DSN)
     c = httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test")
     # inject an XSS attempt via an inbound message
-    run("R003", "xss1", "<script>alert(1)</script> T926334 paisa", REC)
+    conn.execute(
+        "INSERT INTO inbound_messages "
+        "(message_id, rider_id, text, received_at, reply, ok) "
+        "VALUES (%s, %s, %s, %s, %s, %s)",
+        ["xss1", "R003", "<script>alert(1)</script> T926334 paisa", REC, "", True],
+    )
     page = await c.get("/ops")
     assert page.status_code == 200
     assert "<script>alert(1)</script>" not in page.text
@@ -548,14 +567,17 @@ async def test_ops_page_escapes_rider_text_and_shows_queue(approval_item):
     assert "Pending queue" in page.text
 
 
-def test_ops_token_enforced_when_set(approval_item, monkeypatch):
-    item, _run, _stub, _conn = approval_item
+async def test_ops_token_enforced_when_set(approval_item, monkeypatch):
+    item, _run, stub, _conn = approval_item
     import httpx
 
+    from app import ops_page
     from app.main import app
+    monkeypatch.setattr("app.config.settings.database_url", DSN)
     monkeypatch.setattr("app.config.settings.ops_token", "sekrit")
-    c = httpx.Client(transport=httpx.ASGITransport(app=app), base_url="http://test")
-    assert c.post(f"/ops/{item['id']}/approve").status_code == 401
-    ok = c.post(f"/ops/{item['id']}/approve",
+    monkeypatch.setattr(ops_page, "PaySwiftClient", lambda *a, **k: _PatchedClient(stub))
+    c = httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test")
+    assert (await c.post(f"/ops/{item['id']}/approve")).status_code == 401
+    ok = await c.post(f"/ops/{item['id']}/approve",
                 headers={"Authorization": "Bearer sekrit"})
     assert ok.json()["state"] == "approved"
