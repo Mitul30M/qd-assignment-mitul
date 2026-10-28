@@ -39,7 +39,7 @@
 
 ## Implementation evidence
 
-- [x] CI is split into lint, Python compilation/type-safety, unit-test, and Compose smoke
+- [x] CI is split into lint, Python syntax compilation, unit-test, and Compose smoke
   jobs. The Compose job builds from scratch, waits for `/health`, checks duplicate delivery,
   malformed JSON, invalid timestamps, trace/ops contracts, provider outage safety, and runs an
   evaluator smoke case. Every Compose path tears down with `docker compose down -v`.
@@ -58,6 +58,9 @@
 
 - [ ] Export the current Copilot session's raw JSONL into `ai-logs/` if the VS Code export is
   available; the committed logs currently cover the earlier exported sessions only.
+- [ ] Add a static type checker after a dedicated typing cleanup. A Pyright trial surfaced
+  pre-existing typing debt across database row factories and graph state, so it is not enabled
+  as a misleading green CI gate in this submission.
 - [ ] Perform the final fresh-clone run, inspect the final diff for secrets/large files, confirm
   collaborator/deadline logistics in `SUBMISSION.md`, create the `submission` tag, and send the
   private repository link.
