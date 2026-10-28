@@ -87,7 +87,14 @@ MIGRATIONS = [
 
 
 def connect(conninfo: str) -> psycopg.Connection:
-    return psycopg.connect(conninfo, row_factory=dict_row, autocommit=True)
+    """Bound-timeout DB connection: fail explicitly (for retries / health), never hang."""
+    if "connect_timeout" not in conninfo:
+        sep = "&" if "?" in conninfo else "?"
+        conninfo = f"{conninfo}{sep}connect_timeout=5"
+    try:
+        return psycopg.connect(conninfo, row_factory=dict_row, autocommit=True)
+    except psycopg.OperationalError as exc:
+        raise RuntimeError(f"database connect failed: {exc}") from exc
 
 
 def is_ready(conn: psycopg.Connection, init_state: dict[str, int] | None = None) -> bool:

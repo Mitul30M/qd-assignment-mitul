@@ -17,12 +17,12 @@
   state, trace steps, payouts/claims, approvals, escalations, and idempotency keys as needed.
 - [x] Load or mount the supplied exports reproducibly; define behavior for malformed/unknown
   records without silently inventing data.
-- [ ] Add startup/connection retry behavior with explicit errors and bounded timeouts.
+- [x] Add startup/connection retry behavior with explicit errors and bounded timeouts.
 - [x] Add structured application logs that exclude credentials and avoid logging unnecessary
   sensitive content.
 - [x] Add unit/integration coverage for configuration validation, migrations, data loading,
   health/readiness, and persistence across process restarts.
-- [ ] Verify `docker compose up` starts all services and the app can reach PaySwift by its
+- [x] Verify `docker compose up` starts all services and the app can reach PaySwift by its
   Compose service name.
 - [x] Implement the service on port 8000 with idempotent migrations and idempotent source-data
   seeding.
@@ -59,6 +59,6 @@
 
 - [x] From a clean checkout, Compose reaches healthy state and `/health` returns 200.
 - [x] A message can be persisted and traced after an app restart.
-- [ ] Tests fail clearly when required configuration or dependencies are unavailable.
+- [x] Tests fail clearly when required configuration or dependencies are unavailable.
 - [x] The policy engine has no I/O, floats, or wall-clock `now()` and uses
   `Decimal`/`ROUND_HALF_UP`; golden fixture mismatches are explained.

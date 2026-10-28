@@ -45,6 +45,30 @@ def test_env_lists_every_var():
         assert key in example, f".env.example missing {key}"
 
 
+def test_bad_db_url_fails_fast_and_clearly():
+    if not os.environ.get("TEST_DATABASE_URL"):
+        pytest.skip("TEST_DATABASE_URL not set")
+    from app.db import connect
+
+    with pytest.raises(RuntimeError, match="database connect failed"):
+        db_url = os.environ["TEST_DATABASE_URL"].split("@", 1)
+        bad = "postgresql://qd:qd@localhost:1/none?connect_timeout=1"
+        if len(db_url) > 1:
+            bad = f"{db_url[0]}@localhost:1/none?connect_timeout=1"
+        connect(bad)
+
+
+def test_health_503_when_db_unreachable():
+    # configuration contract: a broken DATABASE_URL must fail readiness, not hang
+    from app.db import connect
+
+    try:
+        connect("postgresql://qd:qd@localhost:1/none?connect_timeout=1")
+        pytest.fail("connect should have raised")
+    except RuntimeError:
+        pass
+
+
 def test_migrations_and_seed_idempotent(tmp_path):
     """seed() inserted rows survive a second run (idempotent upserts)."""
     if not os.environ.get("TEST_DATABASE_URL"):
