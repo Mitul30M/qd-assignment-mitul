@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field
 
 from app import db
 from app.config import settings
+from app.data_loader import DATA_DIR
 
 
 class IncomingMessage(BaseModel):
@@ -26,7 +27,7 @@ class IncomingMessage(BaseModel):
 async def lifespan(app: FastAPI):
     conn = db.connect(settings.database_url)
     db.run_migrations(conn)
-    loaded = db.seed(conn, db.DATA_DIR)
+    loaded = db.seed(conn, DATA_DIR)
     conn.close()
     app.state.initialized = loaded
     yield
