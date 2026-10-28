@@ -23,13 +23,11 @@ Deliver a trustworthy, runnable dispute assistant that:
 ## Recommended architecture
 
 The suggested baseline is Python 3.14, FastAPI, Postgres, pytest, and ruff, with an LLM behind
-a thin provider adapter (Groq primary and Gemini fallback are optional). Use JSON-schema model
-outputs and temperature 0 if a hosted model is used.
+a thin provider adapter. Use JSON-schema model outputs and temperature 0 if a hosted model is used.
 
-The LLM may understand language, extract intent/entities (trip IDs, dates, claim type, claimed
-amount, language, injection flag), and draft a reply. Application code must resolve dates and
-ownership, enforce the dispute window, compute fares, reconcile paid history, enforce caps,
-decide payout/approval/escalation, call PaySwift, persist state, and record the trace.
+The LLM may understand language, extract intent/entities, and draft a reply. Application code must
+resolve dates and ownership, enforce the dispute window, compute fares, reconcile paid history,
+enforce caps, decide payout/approval/escalation, call PaySwift, persist state, and record the trace.
 
 Recommended per-message flow:
 
@@ -64,7 +62,7 @@ reply must be produced within the roughly 10-second webhook budget.
 
 | Phase | Deliverable | Exit gate |
 |---|---|---|
-| 0. Understanding and baseline | Requirements matrix, risks, baseline repository notes | Contracts and fixtures are mapped to tests |
+| 0. Understanding and baseline | Requirements matrix, risks, baseline repo notes | Contracts and fixtures are mapped to tests |
 | 1. Runtime foundation | Service, Postgres, config, health, data loading | Clean compose startup and persistence work |
 | 2. Deterministic payout core | Policy calculator, evidence queries, reconciliation | Boundary and invariant tests pass |
 | 3. Conversation workflow | State, intent extraction, safe decisions, replies | All 24 supplied scenarios reach acceptable outcomes |
@@ -74,14 +72,14 @@ reply must be produced within the roughly 10-second webhook budget.
 
 ## Stakeholder priorities
 
-1. **Riders:** clear, respectful replies in the rider's language/register; no silent failure.
-2. **Finance:** never overpay; respect the auto-pay and repeat-payment limits; reconcile with
+1. Riders: clear, respectful replies in the rider's language/register; no silent failure.
+2. Finance: never overpay; respect the auto-pay and repeat-payment limits; reconcile with
    PaySwift; make uncertain provider outcomes visible.
-3. **Ops:** actionable approval/escalation queue, reasons and evidence, approve/reject flow,
+3. Ops: actionable approval/escalation queue, reasons and evidence, approve/reject flow,
    and a complete trace of why the agent acted.
-4. **Engineering/review:** deterministic safety boundaries around model output, repeat-safe
+4. Engineering/review: deterministic safety boundaries around model output, repeat-safe
    webhooks, testable policy logic, and a reproducible one-command evaluation.
-5. **Hiring team:** a small understandable design, explicit assumptions/trade-offs, evidence
+5. Hiring team: a small understandable design, explicit assumptions/trade-offs, evidence
    of eval results, and honest skipped scope.
 
 ## Known risks to keep visible
@@ -103,37 +101,160 @@ For each submitted commit:
 2. Inspect the diff for correctness, scope, data safety, and contract compatibility.
 3. Run the smallest relevant tests, then the phase gate if the change is cross-cutting.
 4. Report blockers first, then high-value improvements, then verified checklist items.
-5. Give a green signal only when the phase exit gate has evidence; otherwise specify the exact
-   failing item and the next required change.
+5. Give a green signal only when the phase exit gate has evidence.
 
-Use [commit-review-template.md](./commit-review-template.md) for a consistent review.
+## End-to-end local runbook
 
-## Suggested time budget
+Use the commands below when you want to run the app locally and try the key behaviors.
 
-The original plan assumes roughly 18–19 focused hours in a 24-hour window:
+### 1. Start the full stack
 
-| Phase | Target |
-|---|---:|
-| 0. Kickoff and hygiene | 45 min |
-| 1. Data audit and policy engine | 3 h |
-| 2. PaySwift client and probing | 1.5 h |
-| 3. Platform skeleton | 2 h |
-| 4. Eval harness | 1.5 h |
-| 5. Agent core | 5 h |
-| 6. Approvals, ops, hardening | 2.5 h |
-| 7. Eval pass and polish | 2 h |
-| 8. Submission | 1 h; finish at least 1 h before deadline |
+```bash
+cp .env.example .env
+LLM_PROVIDER=stub docker compose up -d --build --wait
+```
 
-The checklist phases combine the original plan's phases where their gates are tightly coupled.
+This starts:
 
-## Reviewer verdict format
+- the app on `http://localhost:8000`
+- Postgres on `localhost:5433`
+- the PaySwift mock on `http://localhost:8081`
 
-Every phase review should return:
+### 2. Confirm the app is healthy
 
-1. Verdict: green/proceed, yellow/proceed after fixes, or red/redo.
-2. Severity-ranked bugs with file/line and a suggested fix.
-3. Gate checklist results item by item.
-4. Ranked improvements by value versus remaining time.
-5. Watch-outs for the next phase.
+```bash
+curl --fail http://localhost:8000/health
+```
 
-Hotfixes to an earlier phase are allowed but must be called out in the next review.
+Expected response:
+
+```json
+{"status":"ok"}
+```
+
+### 3. Send a rider message and inspect the result
+
+```bash
+curl --fail --request POST http://localhost:8000/messages \
+  --header 'Content-Type: application/json' \
+  --data '{
+    "message_id": "demo-001",
+    "rider_id": "R003",
+    "text": "Sir T926334 ke liye sirf 49 diye, poore 74 bante the",
+    "received_at": "2026-09-22T10:00:00+05:30"
+  }'
+```
+
+This should return a JSON object with a `reply` field.
+
+Inspect the trace:
+
+```bash
+curl --fail http://localhost:8000/trace/R003
+```
+
+Inspect pending ops items:
+
+```bash
+curl --fail http://localhost:8000/ops/pending
+```
+
+### 4. Test duplicate-message safety
+
+Send the same request again with the same `message_id`:
+
+```bash
+curl --fail --request POST http://localhost:8000/messages \
+  --header 'Content-Type: application/json' \
+  --data '{
+    "message_id": "demo-001",
+    "rider_id": "R003",
+    "text": "Sir T926334 ke liye sirf 49 diye, poore 74 bante the",
+    "received_at": "2026-09-22T10:00:00+05:30"
+  }'
+```
+
+Expected behavior: it returns the same stored reply and does not create a second payout or
+second approval.
+
+### 5. Try a pending-approval case
+
+Use a rider whose claim needs approval because it exceeds the automatic cap:
+
+```bash
+curl --fail --request POST http://localhost:8000/messages \
+  --header 'Content-Type: application/json' \
+  --data '{
+    "message_id": "demo-approval-001",
+    "rider_id": "R034",
+    "text": "Mera dispute ka kya update hai?",
+    "received_at": "2026-09-23T12:00:00+05:30"
+  }'
+```
+
+Then inspect the pending queue:
+
+```bash
+curl --fail http://localhost:8000/ops/pending
+```
+
+### 6. Run the Python test suite
+
+```bash
+source .venv/bin/activate
+pytest -q
+```
+
+Targeted checks:
+
+```bash
+source .venv/bin/activate
+pytest -q tests/test_agent_flow.py tests/test_payments_db.py tests/test_payswift_client.py
+```
+
+Lint checks:
+
+```bash
+source .venv/bin/activate
+ruff check app tests evals scripts
+```
+
+### 7. Run the black-box evaluator
+
+```bash
+source .venv/bin/activate
+python evals/run.py http://localhost:8000 \
+  --payswift-url http://localhost:8081 \
+  --reset-cmd 'docker compose down -v && LLM_PROVIDER=stub docker compose up -d --wait' \
+  --report evals/phase-5-report.md
+```
+
+Focused single-case run:
+
+```bash
+source .venv/bin/activate
+python evals/run.py http://localhost:8000 --only fixture-01 --no-own
+```
+
+### 8. Measure latency
+
+```bash
+source .venv/bin/activate
+python scripts/measure_latency.py http://localhost:8000 --count 20 --max-p95-ms 10000
+```
+
+### 9. Clean reset
+
+```bash
+docker compose down -v
+LLM_PROVIDER=stub docker compose up -d --build --wait
+```
+
+### 10. Stop the stack
+
+```bash
+docker compose down -v
+```
+
+This is the simplest end-to-end flow for validating the assignment before handing it over or
+reviewing any later commit.
