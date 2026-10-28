@@ -24,16 +24,19 @@
   boundary, assumptions, eval results, and skipped items.
 - [ ] Confirm `.env.example`, Docker instructions, eval command, and health endpoint are
   accurate from a clean checkout.
-- [ ] Export raw AI session logs into [ai-logs/](../ai-logs/) and verify they are complete,
-  attributable, and free of keys/tokens.
+- [x] Exported raw AI session logs already present in [ai-logs/](../ai-logs/) were scanned for
+  common key/token patterns. The current VS Code Copilot session export is not available as a
+  raw JSONL file in the workspace, so it is not fabricated or mislabeled.
+- [ ] Export the current VS Code session into [ai-logs/](../ai-logs/) if the Chat export is
+  available, and verify it is complete and attributable.
 - [ ] Remove temporary files, debug endpoints, test credentials, generated artifacts, and
   unrelated changes.
-- [ ] Review the final diff and commit history for accidental secrets, large files, or changes
-  to PaySwift.
-- [ ] Confirm the private repository, collaborator, deadline, and `main` branch submission
-  logistics in [SUBMISSION.md](../SUBMISSION.md).
-- [ ] Run a fresh-clone test: clone, copy `.env.example` to `.env`, add the key if needed,
-  start Compose, and run the README eval command.
+- [x] Reviewed the final diff and commit history for accidental secrets, large files, and
+  changes to PaySwift. No credential-pattern matches were found; PaySwift files are unchanged.
+- [x] Confirmed the private repository, collaborator access, and `main` branch submission
+  logistics. The assignment deadline remains an external calendar/email responsibility.
+- [x] Ran a fresh-clone test from `origin/main`: copied `.env.example` to `.env`, started
+  Compose, passed health, measured p95 at 57.5 ms, and passed the full evaluator 30/30.
 - [ ] Confirm everything is on `main`, tag the final state `submission`, and send the link
   before the deadline.
 
@@ -61,13 +64,13 @@
 - [ ] Add a static type checker after a dedicated typing cleanup. A Pyright trial surfaced
   pre-existing typing debt across database row factories and graph state, so it is not enabled
   as a misleading green CI gate in this submission.
-- [ ] Perform the final fresh-clone run, inspect the final diff for secrets/large files, confirm
-  collaborator/deadline logistics in `SUBMISSION.md`, create the `submission` tag, and send the
-  private repository link.
+- [x] Perform the final fresh-clone run, inspect the final diff for secrets/large files, and
+  confirm collaborator/deadline logistics in `SUBMISSION.md`.
+- [ ] Create the `submission` tag and send the private repository link before the deadline.
 
 ## Final release gate
 
-- [ ] `docker compose up` works from a clean checkout.
-- [ ] Health, message, trace, ops, PaySwift, and eval contracts are verified.
-- [ ] All available fixture cases pass or any failure is explicitly documented.
-- [ ] A reviewer can reproduce the stated results using only the README.
+- [x] `docker compose up` works from a clean checkout.
+- [x] Health, message, trace, ops, PaySwift, and eval contracts are verified.
+- [x] All available fixture cases pass: 30/30, including 24 supplied and 6 owned cases.
+- [x] A reviewer can reproduce the stated results using only the README.
