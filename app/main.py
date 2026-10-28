@@ -28,10 +28,26 @@ async def lifespan(app: FastAPI):
     conn = db.connect(settings.database_url)
     db.run_migrations(conn)
     loaded = db.seed(conn, DATA_DIR)
+    recovery = _recover_stuck_payments(conn)
     conn.close()
     app.state.initialized = loaded
+    app.state.payment_recovery = recovery
     yield
     conn.close()
+
+
+def _recover_stuck_payments(conn) -> list[dict]:
+    """Startup invariant: paySwift may have committed a write whose answer we never
+    saw. Resolve every stuck `sent` payment by reconciling the provider ledger
+    before any retry is ever attempted."""
+    from app.payments import reconcile_stuck_sent
+    from app.payswift import PaySwiftClient
+
+    try:
+        return reconcile_stuck_sent(conn, PaySwiftClient())
+    except Exception as exc:  # Payswift down at boot must NOT block the service
+        db.trace(conn, "*", "warning", "payment_recovery", {"error": str(exc)[:300]}, None)
+        return []
 
 
 app = FastAPI(title="QuickDrop Rider Payout Dispute Desk", lifespan=lifespan)

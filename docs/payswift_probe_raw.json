@@ -1,0 +1,997 @@
+{
+  "run": "061005",
+  "results": [
+    {
+      "name": "health",
+      "method": "GET",
+      "path": "/health",
+      "status": 200,
+      "headers": {
+        "content-type": "application/json"
+      },
+      "body": {
+        "status": "ok"
+      },
+      "latency_ms": 24.9
+    },
+    {
+      "name": "happy_normal",
+      "method": "POST",
+      "path": "/v1/payouts",
+      "status": 201,
+      "headers": {
+        "content-type": "application/json"
+      },
+      "body": {
+        "payout_id": "pout_91cfcfc2cbd3",
+        "rider_id": "RPROBE-1",
+        "amount": 5,
+        "reference": "probe-061005",
+        "status": "processed",
+        "created_at": "2026-10-28T06:10:05Z"
+      },
+      "latency_ms": 3.3
+    },
+    {
+      "name": "happy_no_idem_two_calls_two_payouts",
+      "method": "POST",
+      "path": "/v1/payouts",
+      "status": 201,
+      "headers": {
+        "content-type": "application/json"
+      },
+      "body": {
+        "payout_id": "pout_8b0112753f3d",
+        "rider_id": "RPROBE-1",
+        "amount": 5,
+        "reference": "probe-061005-a",
+        "status": "processed",
+        "created_at": "2026-10-28T06:10:05Z"
+      },
+      "latency_ms": 2.4
+    },
+    {
+      "name": "happy_no_idem_two_calls_two_payouts",
+      "method": "POST",
+      "path": "/v1/payouts",
+      "status": 201,
+      "headers": {
+        "content-type": "application/json"
+      },
+      "body": {
+        "payout_id": "pout_2ac0c23b8387",
+        "rider_id": "RPROBE-1",
+        "amount": 5,
+        "reference": "probe-061005-b",
+        "status": "processed",
+        "created_at": "2026-10-28T06:10:05Z"
+      },
+      "latency_ms": 2.2
+    },
+    {
+      "name": "idem_replay_same_body",
+      "method": "POST",
+      "path": "/v1/payouts",
+      "status": 503,
+      "headers": {
+        "content-type": "application/json"
+      },
+      "body": {
+        "error": "service_unavailable"
+      },
+      "latency_ms": 1.5
+    },
+    {
+      "name": "idem_replay_same_key_again",
+      "method": "POST",
+      "path": "/v1/payouts",
+      "status": 201,
+      "headers": {
+        "content-type": "application/json"
+      },
+      "body": {
+        "payout_id": "pout_54ee7f34ef45",
+        "rider_id": "RPROBE-2",
+        "amount": 7,
+        "reference": "probe-061005-r",
+        "status": "processed",
+        "created_at": "2026-10-28T06:10:05Z"
+      },
+      "latency_ms": 2.0
+    },
+    {
+      "name": "ledger_after_replays",
+      "method": "GET",
+      "path": "/v1/payouts?rider_id=RPROBE-2",
+      "status": 200,
+      "headers": {
+        "content-type": "application/json"
+      },
+      "body": {
+        "data": [
+          {
+            "payout_id": "pout_54ee7f34ef45",
+            "rider_id": "RPROBE-2",
+            "amount": 7,
+            "reference": "probe-061005-r",
+            "status": "processed",
+            "created_at": "2026-10-28T06:10:05Z"
+          }
+        ],
+        "count": 1
+      },
+      "latency_ms": 1.9
+    },
+    {
+      "name": "idem_same_key_different_body",
+      "method": "POST",
+      "path": "/v1/payouts",
+      "status": 409,
+      "headers": {
+        "content-type": "application/json"
+      },
+      "body": {
+        "error": "idempotency_key_reused",
+        "message": "Idempotency-Key was used with a different request body"
+      },
+      "latency_ms": 1.2
+    },
+    {
+      "name": "boundary_zero",
+      "method": "POST",
+      "path": "/v1/payouts",
+      "status": 400,
+      "headers": {
+        "content-type": "application/json"
+      },
+      "body": {
+        "error": "invalid_amount",
+        "message": "amount must be an integer between 1 and 10000"
+      },
+      "latency_ms": 1.7
+    },
+    {
+      "name": "boundary_negative",
+      "method": "POST",
+      "path": "/v1/payouts",
+      "status": 400,
+      "headers": {
+        "content-type": "application/json"
+      },
+      "body": {
+        "error": "invalid_amount",
+        "message": "amount must be an integer between 1 and 10000"
+      },
+      "latency_ms": 1.9
+    },
+    {
+      "name": "boundary_float",
+      "method": "POST",
+      "path": "/v1/payouts",
+      "status": 400,
+      "headers": {
+        "content-type": "application/json"
+      },
+      "body": {
+        "error": "invalid_amount",
+        "message": "amount must be an integer between 1 and 10000"
+      },
+      "latency_ms": 1.8
+    },
+    {
+      "name": "boundary_10001",
+      "method": "POST",
+      "path": "/v1/payouts",
+      "status": 400,
+      "headers": {
+        "content-type": "application/json"
+      },
+      "body": {
+        "error": "invalid_amount",
+        "message": "amount must be an integer between 1 and 10000"
+      },
+      "latency_ms": 1.7
+    },
+    {
+      "name": "boundary_10000",
+      "method": "POST",
+      "path": "/v1/payouts",
+      "status": 201,
+      "headers": {
+        "content-type": "application/json"
+      },
+      "body": {
+        "payout_id": "pout_5a38d0c9b3f7",
+        "rider_id": "RPROBE-1",
+        "amount": 10000,
+        "reference": "probe-061005-max",
+        "status": "processed",
+        "created_at": "2026-10-28T06:10:05Z"
+      },
+      "latency_ms": 1.5
+    },
+    {
+      "name": "boundary_amount_string",
+      "method": "POST",
+      "path": "/v1/payouts",
+      "status": 400,
+      "headers": {
+        "content-type": "application/json"
+      },
+      "body": {
+        "error": "invalid_amount",
+        "message": "amount must be an integer between 1 and 10000"
+      },
+      "latency_ms": 1.4
+    },
+    {
+      "name": "boundary_unknown_rider",
+      "method": "POST",
+      "path": "/v1/payouts",
+      "status": 503,
+      "headers": {
+        "content-type": "application/json"
+      },
+      "body": {
+        "error": "service_unavailable"
+      },
+      "latency_ms": 1.2
+    },
+    {
+      "name": "boundary_missing_field",
+      "method": "POST",
+      "path": "/v1/payouts",
+      "status": 400,
+      "headers": {
+        "content-type": "application/json"
+      },
+      "body": {
+        "error": "invalid_amount",
+        "message": "amount must be an integer between 1 and 10000"
+      },
+      "latency_ms": 1.4
+    },
+    {
+      "name": "list_all",
+      "method": "GET",
+      "path": "/v1/payouts",
+      "status": 200,
+      "headers": {
+        "content-type": "application/json"
+      },
+      "body": {
+        "data": [
+          {
+            "payout_id": "pout_91cfcfc2cbd3",
+            "rider_id": "RPROBE-1",
+            "amount": 5,
+            "reference": "probe-061005",
+            "status": "processed",
+            "created_at": "2026-10-28T06:10:05Z"
+          },
+          {
+            "payout_id": "pout_8b0112753f3d",
+            "rider_id": "RPROBE-1",
+            "amount": 5,
+            "reference": "probe-061005-a",
+            "status": "processed",
+            "created_at": "2026-10-28T06:10:05Z"
+          },
+          {
+            "payout_id": "pout_2ac0c23b8387",
+            "rider_id": "RPROBE-1",
+            "amount": 5,
+            "reference": "probe-061005-b",
+            "status": "processed",
+            "created_at": "2026-10-28T06:10:05Z"
+          },
+          {
+            "payout_id": "pout_54ee7f34ef45",
+            "rider_id": "RPROBE-2",
+            "amount": 7,
+            "reference": "probe-061005-r",
+            "status": "processed",
+            "created_at": "2026-10-28T06:10:05Z"
+          },
+          {
+            "payout_id": "pout_5a38d0c9b3f7",
+            "rider_id": "RPROBE-1",
+            "amount": 10000,
+            "reference": "probe-061005-max",
+            "status": "processed",
+            "created_at": "2026-10-28T06:10:05Z"
+          }
+        ],
+        "count": 5
+      },
+      "latency_ms": 1.3
+    },
+    {
+      "name": "list_filter",
+      "method": "GET",
+      "path": "/v1/payouts?rider_id=RPROBE-2",
+      "status": 200,
+      "headers": {
+        "content-type": "application/json"
+      },
+      "body": {
+        "data": [
+          {
+            "payout_id": "pout_54ee7f34ef45",
+            "rider_id": "RPROBE-2",
+            "amount": 7,
+            "reference": "probe-061005-r",
+            "status": "processed",
+            "created_at": "2026-10-28T06:10:05Z"
+          }
+        ],
+        "count": 1
+      },
+      "latency_ms": 1.5
+    },
+    {
+      "name": "list_unknown_rider",
+      "method": "GET",
+      "path": "/v1/payouts?rider_id=NOBODY",
+      "status": 200,
+      "headers": {
+        "content-type": "application/json"
+      },
+      "body": {
+        "data": [],
+        "count": 0
+      },
+      "latency_ms": 1.3
+    },
+    {
+      "name": "rate_limit_burst",
+      "method": "POST",
+      "path": "/v1/payouts",
+      "status": 201,
+      "headers": {
+        "content-type": "application/json"
+      },
+      "body": {
+        "payout_id": "pout_fbdaef9f7a72",
+        "rider_id": "RPROBE-1",
+        "amount": 1,
+        "reference": "burst-061005-0",
+        "status": "processed",
+        "created_at": "2026-10-28T06:10:05Z"
+      },
+      "latency_ms": 1.5
+    },
+    {
+      "name": "rate_limit_burst",
+      "method": "POST",
+      "path": "/v1/payouts",
+      "status": 201,
+      "headers": {
+        "content-type": "application/json"
+      },
+      "body": {
+        "payout_id": "pout_fd8297a69855",
+        "rider_id": "RPROBE-1",
+        "amount": 1,
+        "reference": "burst-061005-1",
+        "status": "processed",
+        "created_at": "2026-10-28T06:10:05Z"
+      },
+      "latency_ms": 1.2
+    },
+    {
+      "name": "rate_limit_burst",
+      "method": "POST",
+      "path": "/v1/payouts",
+      "status": 201,
+      "headers": {
+        "content-type": "application/json"
+      },
+      "body": {
+        "payout_id": "pout_41a118abee9a",
+        "rider_id": "RPROBE-1",
+        "amount": 1,
+        "reference": "burst-061005-2",
+        "status": "processed",
+        "created_at": "2026-10-28T06:10:05Z"
+      },
+      "latency_ms": 1.1
+    },
+    {
+      "name": "rate_limit_burst",
+      "method": "POST",
+      "path": "/v1/payouts",
+      "status": 201,
+      "headers": {
+        "content-type": "application/json"
+      },
+      "body": {
+        "payout_id": "pout_6b2918f4d59a",
+        "rider_id": "RPROBE-1",
+        "amount": 1,
+        "reference": "burst-061005-3",
+        "status": "processed",
+        "created_at": "2026-10-28T06:10:05Z"
+      },
+      "latency_ms": 1.1
+    },
+    {
+      "name": "rate_limit_burst",
+      "method": "POST",
+      "path": "/v1/payouts",
+      "status": 201,
+      "headers": {
+        "content-type": "application/json"
+      },
+      "body": {
+        "payout_id": "pout_a6e2e112c220",
+        "rider_id": "RPROBE-1",
+        "amount": 1,
+        "reference": "burst-061005-4",
+        "status": "processed",
+        "created_at": "2026-10-28T06:10:05Z"
+      },
+      "latency_ms": 1.1
+    },
+    {
+      "name": "rate_limit_burst",
+      "method": "POST",
+      "path": "/v1/payouts",
+      "status": 201,
+      "headers": {
+        "content-type": "application/json"
+      },
+      "body": {
+        "payout_id": "pout_2d9516265199",
+        "rider_id": "RPROBE-1",
+        "amount": 1,
+        "reference": "burst-061005-5",
+        "status": "processed",
+        "created_at": "2026-10-28T06:10:05Z"
+      },
+      "latency_ms": 1.1
+    },
+    {
+      "name": "rate_limit_burst",
+      "method": "POST",
+      "path": "/v1/payouts",
+      "status": 201,
+      "headers": {
+        "content-type": "application/json"
+      },
+      "body": {
+        "payout_id": "pout_a87fdf03eae0",
+        "rider_id": "RPROBE-1",
+        "amount": 1,
+        "reference": "burst-061005-6",
+        "status": "processed",
+        "created_at": "2026-10-28T06:10:05Z"
+      },
+      "latency_ms": 1.1
+    },
+    {
+      "name": "rate_limit_burst",
+      "method": "POST",
+      "path": "/v1/payouts",
+      "status": 201,
+      "headers": {
+        "content-type": "application/json"
+      },
+      "body": {
+        "payout_id": "pout_8e2022a28877",
+        "rider_id": "RPROBE-1",
+        "amount": 1,
+        "reference": "burst-061005-7",
+        "status": "processed",
+        "created_at": "2026-10-28T06:10:13Z"
+      },
+      "latency_ms": 8006.8
+    },
+    {
+      "name": "rate_limit_burst",
+      "method": "POST",
+      "path": "/v1/payouts",
+      "status": 201,
+      "headers": {
+        "content-type": "application/json"
+      },
+      "body": {
+        "payout_id": "pout_0de3dd698f6e",
+        "rider_id": "RPROBE-1",
+        "amount": 1,
+        "reference": "burst-061005-8",
+        "status": "processed",
+        "created_at": "2026-10-28T06:10:13Z"
+      },
+      "latency_ms": 1.8
+    },
+    {
+      "name": "rate_limit_burst",
+      "method": "POST",
+      "path": "/v1/payouts",
+      "status": 201,
+      "headers": {
+        "content-type": "application/json"
+      },
+      "body": {
+        "payout_id": "pout_62fe5448296c",
+        "rider_id": "RPROBE-1",
+        "amount": 1,
+        "reference": "burst-061005-9",
+        "status": "processed",
+        "created_at": "2026-10-28T06:10:13Z"
+      },
+      "latency_ms": 1.0
+    },
+    {
+      "name": "rate_limit_burst",
+      "method": "POST",
+      "path": "/v1/payouts",
+      "status": 201,
+      "headers": {
+        "content-type": "application/json"
+      },
+      "body": {
+        "payout_id": "pout_3b1a580828e4",
+        "rider_id": "RPROBE-1",
+        "amount": 1,
+        "reference": "burst-061005-10",
+        "status": "processed",
+        "created_at": "2026-10-28T06:10:21Z"
+      },
+      "latency_ms": 8004.2
+    },
+    {
+      "name": "rate_limit_burst",
+      "method": "POST",
+      "path": "/v1/payouts",
+      "status": 201,
+      "headers": {
+        "content-type": "application/json"
+      },
+      "body": {
+        "payout_id": "pout_918e0bc1464c",
+        "rider_id": "RPROBE-1",
+        "amount": 1,
+        "reference": "burst-061005-11",
+        "status": "processed",
+        "created_at": "2026-10-28T06:10:21Z"
+      },
+      "latency_ms": 3.7
+    },
+    {
+      "name": "rate_limit_burst",
+      "method": "POST",
+      "path": "/v1/payouts",
+      "status": 504,
+      "headers": {
+        "content-type": "application/json"
+      },
+      "body": {
+        "error": "gateway_timeout"
+      },
+      "latency_ms": 2006.2
+    },
+    {
+      "name": "rate_limit_burst",
+      "method": "POST",
+      "path": "/v1/payouts",
+      "status": 201,
+      "headers": {
+        "content-type": "application/json"
+      },
+      "body": {
+        "payout_id": "pout_ebd7c2652be9",
+        "rider_id": "RPROBE-1",
+        "amount": 1,
+        "reference": "burst-061005-13",
+        "status": "processed",
+        "created_at": "2026-10-28T06:10:23Z"
+      },
+      "latency_ms": 3.8
+    },
+    {
+      "name": "rate_limit_burst",
+      "method": "POST",
+      "path": "/v1/payouts",
+      "status": 201,
+      "headers": {
+        "content-type": "application/json"
+      },
+      "body": {
+        "payout_id": "pout_34ce31bf9b26",
+        "rider_id": "RPROBE-1",
+        "amount": 1,
+        "reference": "burst-061005-14",
+        "status": "processed",
+        "created_at": "2026-10-28T06:10:23Z"
+      },
+      "latency_ms": 2.6
+    },
+    {
+      "name": "rate_limit_burst",
+      "method": "POST",
+      "path": "/v1/payouts",
+      "status": 201,
+      "headers": {
+        "content-type": "application/json"
+      },
+      "body": {
+        "payout_id": "pout_55a92f403a4f",
+        "rider_id": "RPROBE-1",
+        "amount": 1,
+        "reference": "burst-061005-15",
+        "status": "processed",
+        "created_at": "2026-10-28T06:10:31Z"
+      },
+      "latency_ms": 8005.1
+    },
+    {
+      "name": "rate_limit_burst",
+      "method": "POST",
+      "path": "/v1/payouts",
+      "status": 503,
+      "headers": {
+        "content-type": "application/json"
+      },
+      "body": {
+        "error": "service_unavailable"
+      },
+      "latency_ms": 3.6
+    },
+    {
+      "name": "rate_limit_burst",
+      "method": "POST",
+      "path": "/v1/payouts",
+      "status": 201,
+      "headers": {
+        "content-type": "application/json"
+      },
+      "body": {
+        "payout_id": "pout_c04f3d94c564",
+        "rider_id": "RPROBE-1",
+        "amount": 1,
+        "reference": "burst-061005-17",
+        "status": "processed",
+        "created_at": "2026-10-28T06:10:31Z"
+      },
+      "latency_ms": 2.5
+    },
+    {
+      "name": "rate_limit_burst",
+      "method": "POST",
+      "path": "/v1/payouts",
+      "status": 503,
+      "headers": {
+        "content-type": "application/json"
+      },
+      "body": {
+        "error": "service_unavailable"
+      },
+      "latency_ms": 2.3
+    },
+    {
+      "name": "rate_limit_burst",
+      "method": "POST",
+      "path": "/v1/payouts",
+      "status": 201,
+      "headers": {
+        "content-type": "application/json"
+      },
+      "body": {
+        "payout_id": "pout_a34a66b66082",
+        "rider_id": "RPROBE-1",
+        "amount": 1,
+        "reference": "burst-061005-19",
+        "status": "processed",
+        "created_at": "2026-10-28T06:10:31Z"
+      },
+      "latency_ms": 2.4
+    },
+    {
+      "name": "rate_limit_burst",
+      "method": "POST",
+      "path": "/v1/payouts",
+      "status": 503,
+      "headers": {
+        "content-type": "application/json"
+      },
+      "body": {
+        "error": "service_unavailable"
+      },
+      "latency_ms": 2.4
+    },
+    {
+      "name": "rate_limit_burst",
+      "method": "POST",
+      "path": "/v1/payouts",
+      "status": 503,
+      "headers": {
+        "content-type": "application/json"
+      },
+      "body": {
+        "error": "service_unavailable"
+      },
+      "latency_ms": 2.3
+    },
+    {
+      "name": "rate_limit_burst",
+      "method": "POST",
+      "path": "/v1/payouts",
+      "status": 504,
+      "headers": {
+        "content-type": "application/json"
+      },
+      "body": {
+        "error": "gateway_timeout"
+      },
+      "latency_ms": 2008.4
+    },
+    {
+      "name": "rate_limit_burst",
+      "method": "POST",
+      "path": "/v1/payouts",
+      "status": 201,
+      "headers": {
+        "content-type": "application/json"
+      },
+      "body": {
+        "payout_id": "pout_147cbf4643b3",
+        "rider_id": "RPROBE-1",
+        "amount": 1,
+        "reference": "burst-061005-23",
+        "status": "processed",
+        "created_at": "2026-10-28T06:10:33Z"
+      },
+      "latency_ms": 3.4
+    },
+    {
+      "name": "rate_limit_burst",
+      "method": "POST",
+      "path": "/v1/payouts",
+      "status": 201,
+      "headers": {
+        "content-type": "application/json"
+      },
+      "body": {
+        "payout_id": "pout_ba0b8daa4911",
+        "rider_id": "RPROBE-1",
+        "amount": 1,
+        "reference": "burst-061005-24",
+        "status": "processed",
+        "created_at": "2026-10-28T06:10:33Z"
+      },
+      "latency_ms": 2.7
+    },
+    {
+      "name": "rate_limit_burst",
+      "method": "POST",
+      "path": "/v1/payouts",
+      "status": 503,
+      "headers": {
+        "content-type": "application/json"
+      },
+      "body": {
+        "error": "service_unavailable"
+      },
+      "latency_ms": 2.3
+    },
+    {
+      "name": "rate_limit_burst",
+      "method": "POST",
+      "path": "/v1/payouts",
+      "status": 503,
+      "headers": {
+        "content-type": "application/json"
+      },
+      "body": {
+        "error": "service_unavailable"
+      },
+      "latency_ms": 2.0
+    },
+    {
+      "name": "rate_limit_burst",
+      "method": "POST",
+      "path": "/v1/payouts",
+      "status": 201,
+      "headers": {
+        "content-type": "application/json"
+      },
+      "body": {
+        "payout_id": "pout_69464f414fa8",
+        "rider_id": "RPROBE-1",
+        "amount": 1,
+        "reference": "burst-061005-27",
+        "status": "processed",
+        "created_at": "2026-10-28T06:10:33Z"
+      },
+      "latency_ms": 2.2
+    },
+    {
+      "name": "rate_limit_burst",
+      "method": "POST",
+      "path": "/v1/payouts",
+      "status": 503,
+      "headers": {
+        "content-type": "application/json"
+      },
+      "body": {
+        "error": "service_unavailable"
+      },
+      "latency_ms": 2.2
+    },
+    {
+      "name": "rate_limit_burst",
+      "method": "POST",
+      "path": "/v1/payouts",
+      "status": 504,
+      "headers": {
+        "content-type": "application/json"
+      },
+      "body": {
+        "error": "gateway_timeout"
+      },
+      "latency_ms": 2006.7
+    },
+    {
+      "name": "rate_limit_burst",
+      "method": "POST",
+      "path": "/v1/payouts",
+      "status": 201,
+      "headers": {
+        "content-type": "application/json"
+      },
+      "body": {
+        "payout_id": "pout_c4b181577119",
+        "rider_id": "RPROBE-1",
+        "amount": 1,
+        "reference": "burst-061005-30",
+        "status": "processed",
+        "created_at": "2026-10-28T06:10:35Z"
+      },
+      "latency_ms": 4.1
+    },
+    {
+      "name": "rate_limit_burst",
+      "method": "POST",
+      "path": "/v1/payouts",
+      "status": 503,
+      "headers": {
+        "content-type": "application/json"
+      },
+      "body": {
+        "error": "service_unavailable"
+      },
+      "latency_ms": 2.9
+    },
+    {
+      "name": "rate_limit_burst",
+      "method": "POST",
+      "path": "/v1/payouts",
+      "status": 504,
+      "headers": {
+        "content-type": "application/json"
+      },
+      "body": {
+        "error": "gateway_timeout"
+      },
+      "latency_ms": 2008.5
+    },
+    {
+      "name": "rate_limit_burst",
+      "method": "POST",
+      "path": "/v1/payouts",
+      "status": 201,
+      "headers": {
+        "content-type": "application/json"
+      },
+      "body": {
+        "payout_id": "pout_25017b29767d",
+        "rider_id": "RPROBE-1",
+        "amount": 1,
+        "reference": "burst-061005-33",
+        "status": "processed",
+        "created_at": "2026-10-28T06:10:37Z"
+      },
+      "latency_ms": 4.1
+    },
+    {
+      "name": "rate_limit_burst",
+      "method": "POST",
+      "path": "/v1/payouts",
+      "status": 504,
+      "headers": {
+        "content-type": "application/json"
+      },
+      "body": {
+        "error": "gateway_timeout"
+      },
+      "latency_ms": 2009.1
+    },
+    {
+      "name": "rate_limit_burst",
+      "method": "POST",
+      "path": "/v1/payouts",
+      "status": 201,
+      "headers": {
+        "content-type": "application/json"
+      },
+      "body": {
+        "payout_id": "pout_708109431ee6",
+        "rider_id": "RPROBE-1",
+        "amount": 1,
+        "reference": "burst-061005-35",
+        "status": "processed",
+        "created_at": "2026-10-28T06:10:39Z"
+      },
+      "latency_ms": 3.8
+    },
+    {
+      "name": "rate_limit_burst",
+      "method": "POST",
+      "path": "/v1/payouts",
+      "status": 201,
+      "headers": {
+        "content-type": "application/json"
+      },
+      "body": {
+        "payout_id": "pout_8e50c5c0128a",
+        "rider_id": "RPROBE-1",
+        "amount": 1,
+        "reference": "burst-061005-36",
+        "status": "processed",
+        "created_at": "2026-10-28T06:10:39Z"
+      },
+      "latency_ms": 2.6
+    },
+    {
+      "name": "rate_limit_burst",
+      "method": "POST",
+      "path": "/v1/payouts",
+      "status": 201,
+      "headers": {
+        "content-type": "application/json"
+      },
+      "body": {
+        "payout_id": "pout_fa2bdad75425",
+        "rider_id": "RPROBE-1",
+        "amount": 1,
+        "reference": "burst-061005-37",
+        "status": "processed",
+        "created_at": "2026-10-28T06:10:39Z"
+      },
+      "latency_ms": 2.3
+    },
+    {
+      "name": "rate_limit_burst",
+      "method": "POST",
+      "path": "/v1/payouts",
+      "status": 504,
+      "headers": {
+        "content-type": "application/json"
+      },
+      "body": {
+        "error": "gateway_timeout"
+      },
+      "latency_ms": 2008.7
+    },
+    {
+      "name": "rate_limit_burst",
+      "method": "POST",
+      "path": "/v1/payouts",
+      "status": 201,
+      "headers": {
+        "content-type": "application/json"
+      },
+      "body": {
+        "payout_id": "pout_921ff3317224",
+        "rider_id": "RPROBE-1",
+        "amount": 1,
+        "reference": "burst-061005-39",
+        "status": "processed",
+        "created_at": "2026-10-28T06:10:41Z"
+      },
+      "latency_ms": 4.2
+    }
+  ]
+}

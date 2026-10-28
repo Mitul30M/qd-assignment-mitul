@@ -81,7 +81,16 @@ MIGRATIONS = [
         provider_payout_id TEXT,
         created_at TIMESTAMPTZ NOT NULL DEFAULT now()
     );
+
     CREATE INDEX IF NOT EXISTS payments_rider_idx ON payments (rider_id, created_at);
+    """,
+    """ALTER TABLE payments ADD COLUMN IF NOT EXISTS reference TEXT;
+    ALTER TABLE payments ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ;
+    ALTER TABLE payments ADD COLUMN IF NOT EXISTS confirmed_at TIMESTAMPTZ;
+    ALTER TABLE payments ADD COLUMN IF NOT EXISTS error TEXT;
+    ALTER TABLE payments ADD COLUMN IF NOT EXISTS details JSONB;
+    CREATE UNIQUE INDEX IF NOT EXISTS payments_dispute_purpose_idx
+        ON payments (dispute_id, purpose) WHERE state <> 'failed';
     """,
 ]
 
