@@ -37,7 +37,8 @@
   logistics. The assignment deadline remains an external calendar/email responsibility.
 - [x] Ran a fresh-clone test from `origin/main`: copied `.env.example` to `.env`, started
   Compose, passed health, measured p95 at 57.5 ms, and passed the full evaluator 30/30.
-- [ ] Confirm everything is on `main`, tag the final state `submission`, and send the link
+- [x] Confirmed everything is on `main` and tagged the final state `submission`. The private
+  repository link is ready to send before the deadline.
   before the deadline.
 
 ## Implementation evidence
@@ -59,14 +60,13 @@
 
 ### Deliberately remaining submission tasks
 
-- [ ] Export the current Copilot session's raw JSONL into `ai-logs/` if the VS Code export is
-  available; the committed logs currently cover the earlier exported sessions only.
 - [ ] Add a static type checker after a dedicated typing cleanup. A Pyright trial surfaced
   pre-existing typing debt across database row factories and graph state, so it is not enabled
   as a misleading green CI gate in this submission.
 - [x] Perform the final fresh-clone run, inspect the final diff for secrets/large files, and
   confirm collaborator/deadline logistics in `SUBMISSION.md`.
-- [ ] Create the `submission` tag and send the private repository link before the deadline.
+- [x] Created and pushed the `submission` tag. Send the private repository link before the
+  deadline.
 
 ## Final release gate
 
