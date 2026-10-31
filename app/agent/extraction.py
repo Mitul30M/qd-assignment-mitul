@@ -103,9 +103,19 @@ def _build_llm():
 
     from app.config import settings
 
-    return ChatGroq(api_key=settings.llm_api_key, model=settings.llm_model,
-                    temperature=0, max_retries=0,
-                    timeout=settings.llm_timeout_s, max_tokens=512)
+    kwargs = {
+        "api_key": settings.llm_api_key,
+        "model": settings.llm_model,
+        "temperature": 0,
+        "max_retries": 0,
+        "timeout": settings.llm_timeout_s,
+        "max_tokens": 512,
+    }
+    if settings.llm_base_url:
+        base_url = settings.llm_base_url.rstrip("/")
+        base_url = base_url.removesuffix("/openai/v1")
+        kwargs["base_url"] = base_url
+    return ChatGroq(**kwargs)
 
 
 def _call_llm(llm, text: str, anchor: datetime.date, repair_note: str = "") -> str:
@@ -146,6 +156,9 @@ def _validate(parsed: dict, text: str, received_at_ist: datetime.date) -> dict:
         if not isinstance(raw, dict):
             continue
         kind = raw.get("kind") if raw.get("kind") in KINDS else infer_kind_blind(text)
+        deterministic_kind = infer_kind_blind(text)
+        if deterministic_kind == "incentive":
+            kind = deterministic_kind
         trips = [t.upper() for t in (raw.get("trip_ids") or [])
                  if isinstance(t, str) and re.fullmatch(r"t\d{4,8}", t.strip(), re.IGNORECASE)]
         days = []
@@ -179,7 +192,7 @@ def _validate(parsed: dict, text: str, received_at_ist: datetime.date) -> dict:
         "injection": bool(parsed.get("injection")),
         "tone_flag": parsed.get("tone_flag") if parsed.get("tone_flag") in
                      ("abuse", "legal_media", "threat") else None,
-        "asks_human": bool(parsed.get("asks_human")),
+        "asks_human": bool(parsed.get("asks_human")) or asks_human_regex(text),
     }
 
 

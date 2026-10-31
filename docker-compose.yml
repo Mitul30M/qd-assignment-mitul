@@ -31,6 +31,9 @@ services:
       LLM_PROVIDER: ${LLM_PROVIDER:-stub}
       LLM_API_KEY: ${LLM_API_KEY:-}
       LLM_MODEL: ${LLM_MODEL:-}
+      LLM_BASE_URL: ${LLM_BASE_URL:-}
+      LLM_TIMEOUT_S: ${LLM_TIMEOUT_S:-3.5}
+      LLM_MAX_CALLS: ${LLM_MAX_CALLS:-2}
     depends_on:
       postgres:
         condition: service_healthy
